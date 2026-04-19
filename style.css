@@ -43,6 +43,7 @@ body {
     background: black;
     width: 100vw;
     height: 100vh;
+    cursor: none; /* Hide cursor for spaceship */
 }
 
 #exit-btn {

@@ -14,6 +14,7 @@ let mouse = { x: 0, y: 0, down: false };
 let score = 0;
 let highScore = localStorage.getItem("asteroidHighScore") || 0;
 let gameRunning = false;
+let lastShot = 0; // For laser firing rate
 
 // Display high score on menu
 highScoreDisplay.textContent = "High Score: " + highScore;
@@ -72,8 +73,8 @@ function shoot() {
     bullets.push({
         x: mouse.x,
         y: mouse.y,
-        size: 2,
-        speed: 8
+        size: 20, // Longer laser
+        speed: 12 // Faster
     });
 }
 
@@ -115,20 +116,40 @@ function isColliding(a, b) {
     return dist < a.size + b.size;
 }
 
+// ====== DRAW SPACESHIP ======
+function drawSpaceship(x, y) {
+    ctx.fillStyle = "white";
+    // Main body
+    ctx.fillRect(x - 8, y - 5, 16, 10);
+    // Wings
+    ctx.fillRect(x - 12, y - 2, 4, 4);
+    ctx.fillRect(x + 8, y - 2, 4, 4);
+    // Thruster
+    ctx.fillStyle = "orange";
+    ctx.fillRect(x - 2, y + 5, 4, 3);
+}
+
 // ====== GAME LOOP ======
 function gameLoop() {
     if (!gameRunning) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Shoot bullets if mouse held
-    if (mouse.down) shoot();
+    // Draw spaceship at mouse position
+    drawSpaceship(mouse.x, mouse.y);
+
+    // Shoot lasers if mouse down and cooldown passed
+    if (mouse.down && Date.now() - lastShot > 300) { // 300ms cooldown for slower firing
+        shoot();
+        lastShot = Date.now();
+    }
 
     // Update bullets
     bullets.forEach((b, i) => {
         b.y -= b.speed;
-        ctx.fillStyle = "white";
-        ctx.fillRect(b.x, b.y, b.size, b.size);
+        // Draw laser as thin rectangle
+        ctx.fillStyle = "cyan";
+        ctx.fillRect(b.x - 1, b.y, 2, b.size); // Thin vertical laser
 
         // Remove off-screen bullets
         if (b.y < 0) bullets.splice(i, 1);
@@ -146,8 +167,8 @@ function gameLoop() {
 
         // Bullet collisions
         bullets.forEach((b, j) => {
-            if (isColliding({ x: b.x, y: b.y, size: 2 }, a)) {
-                score += Math.floor(100 - a.size); // smaller = more points
+            if (isColliding({ x: b.x, y: b.y, size: b.size / 2 }, a)) {
+                score += Math.floor(100 - a.size);
                 asteroids.splice(i, 1);
                 bullets.splice(j, 1);
             }
