@@ -7,6 +7,10 @@ const startBtn = document.getElementById("start-btn");
 const highScoreList = document.getElementById("high-score-list");
 const exitBtn = document.getElementById("exit-btn");
 const powerupIndicator = document.getElementById("powerup-indicator");
+const initialsOverlay = document.getElementById("initials-overlay");
+const initialsInput = document.getElementById("initials-input");
+const initialsSubmit = document.getElementById("initials-submit");
+const finalScoreText = document.getElementById("final-score-text");
 
 // ====== GAME STATE ======
 let bullets = [];
@@ -152,9 +156,13 @@ function updateHighScoresDisplay() {
         highScoreList.appendChild(li);
         return;
     }
-    highScores.slice(0, 10).forEach((s) => {
+    highScores.slice(0, 10).forEach((entry) => {
         const li = document.createElement("li");
-        li.textContent = s.toLocaleString();
+        if (typeof entry === "object" && entry.name) {
+            li.textContent = entry.name + "  " + entry.score.toLocaleString();
+        } else {
+            li.textContent = entry.toLocaleString();
+        }
         highScoreList.appendChild(li);
     });
 }
@@ -211,17 +219,46 @@ function exitGame() {
 
     canvas.style.display = "none";
     exitBtn.style.display = "none";
-    mainMenu.style.display = "flex";
 
-    // Save score to high score board
     if (score > 0) {
-        highScores.push(score);
-        highScores.sort((a, b) => b - a); // Descending
-        highScores = highScores.slice(0, 10); // Keep top 10
-        localStorage.setItem("asteroidHighScores", JSON.stringify(highScores));
+        // Show initials prompt
+        finalScoreText.textContent = "Score: " + score.toLocaleString();
+        initialsInput.value = "";
+        initialsOverlay.style.display = "flex";
+        initialsInput.focus();
+    } else {
+        mainMenu.style.display = "flex";
     }
+}
+
+function saveScoreWithInitials(initials) {
+    initials = initials.toUpperCase().replace(/[^A-Z]/g, "").substring(0, 3);
+    if (!initials) initials = "AAA";
+    while (initials.length < 3) initials += "_";
+
+    highScores.push({ name: initials, score: score });
+    highScores.sort((a, b) => {
+        const sa = typeof a === "object" ? a.score : a;
+        const sb = typeof b === "object" ? b.score : b;
+        return sb - sa;
+    });
+    highScores = highScores.slice(0, 10);
+    localStorage.setItem("asteroidHighScores", JSON.stringify(highScores));
+
+    initialsOverlay.style.display = "none";
+    mainMenu.style.display = "flex";
     updateHighScoresDisplay();
 }
+
+initialsSubmit.addEventListener("click", () => {
+    saveScoreWithInitials(initialsInput.value);
+});
+
+initialsInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        saveScoreWithInitials(initialsInput.value);
+    }
+});
 
 // ====== SHOOTING ======
 function shoot() {

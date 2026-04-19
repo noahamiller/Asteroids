@@ -72,6 +72,68 @@
             pointer-events: none;
         }
 
+        #initials-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #initials-box {
+            text-align: center;
+            background: #111;
+            border: 2px solid #555;
+            padding: 30px 40px;
+            border-radius: 10px;
+        }
+
+        #initials-box h2 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            color: #ff4444;
+        }
+
+        #initials-box p {
+            font-size: 18px;
+            margin: 8px 0;
+        }
+
+        #initials-input {
+            font-size: 32px;
+            width: 100px;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 8px;
+            background: #222;
+            border: 2px solid #888;
+            color: white;
+            padding: 6px;
+            outline: none;
+        }
+
+        #initials-input:focus {
+            border-color: #4488cc;
+        }
+
+        #initials-submit {
+            display: block;
+            margin: 15px auto 0;
+            padding: 8px 30px;
+            font-size: 18px;
+            cursor: pointer;
+            background: #333;
+            border: 2px solid white;
+            color: white;
+        }
+
+        #initials-submit:hover {
+            background: #555;
+        }
+
         #game-canvas {
             display: none;
             background: black;
@@ -97,6 +159,17 @@
         <div id="high-score-board">
             <h2>High Scores</h2>
             <ol id="high-score-list"></ol>
+        </div>
+    </div>
+
+    <!-- Initials Input Overlay -->
+    <div id="initials-overlay">
+        <div id="initials-box">
+            <h2>Game Over!</h2>
+            <p id="final-score-text">Score: 0</p>
+            <p>Enter your initials:</p>
+            <input type="text" id="initials-input" maxlength="3" autocomplete="off" spellcheck="false" />
+            <button id="initials-submit">OK</button>
         </div>
     </div>
 
