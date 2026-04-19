@@ -40,9 +40,36 @@
             color: white;
         }
 
-        #high-score {
-            margin-top: 20px;
-            font-size: 20px;
+        #high-score-board {
+            margin-top: 25px;
+            text-align: center;
+        }
+
+        #high-score-board h2 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        #high-score-board ol {
+            list-style-position: inside;
+            padding: 0;
+            margin: 0;
+            font-size: 18px;
+            color: #ccc;
+        }
+
+        #high-score-board ol li {
+            margin: 3px 0;
+        }
+
+        #powerup-indicator {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            font-size: 18px;
+            color: lime;
+            display: none;
+            pointer-events: none;
         }
 
         #game-canvas {
@@ -67,11 +94,17 @@
     <div id="main-menu">
         <h1>Asteroid Shooter</h1>
         <button id="start-btn">Start Game</button>
-        <div id="high-score">High Score: 0</div>
+        <div id="high-score-board">
+            <h2>High Scores</h2>
+            <ol id="high-score-list"></ol>
+        </div>
     </div>
 
     <!-- Exit Button -->
     <div id="exit-btn">X</div>
+
+    <!-- Powerup Indicator -->
+    <div id="powerup-indicator">&#9733; MULTI-LASER &#9733;</div>
 
     <!-- Game Canvas -->
     <canvas id="game-canvas" width="800" height="600"></canvas>

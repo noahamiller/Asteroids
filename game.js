@@ -4,20 +4,161 @@ const ctx = canvas.getContext("2d");
 
 const mainMenu = document.getElementById("main-menu");
 const startBtn = document.getElementById("start-btn");
-const highScoreDisplay = document.getElementById("high-score");
+const highScoreList = document.getElementById("high-score-list");
 const exitBtn = document.getElementById("exit-btn");
+const powerupIndicator = document.getElementById("powerup-indicator");
 
 // ====== GAME STATE ======
 let bullets = [];
 let asteroids = [];
+let powerups = [];
 let mouse = { x: 0, y: 0, down: false };
 let score = 0;
-let highScore = localStorage.getItem("asteroidHighScore") || 0;
+let highScores = JSON.parse(localStorage.getItem("asteroidHighScores") || "[]");
 let gameRunning = false;
-let lastShot = 0; // For laser firing rate
+let lastShot = 0;
 
-// Display high score on menu
-highScoreDisplay.textContent = "High Score: " + highScore;
+// Powerup state
+let laserCount = 1; // How many lasers fired per shot
+let multiLaserTimer = null;
+
+// Background scroll
+let bgOffset = 0;
+let earthImg = null;
+let earthLoaded = false;
+
+// ====== GENERATE EARTH BACKGROUND ======
+function generateEarthBackground() {
+    // Create an offscreen canvas to draw a procedural orbital Earth view
+    const offscreen = document.createElement("canvas");
+    offscreen.width = 2048;
+    offscreen.height = 2048;
+    const oc = offscreen.getContext("2d");
+
+    // Deep space base
+    oc.fillStyle = "#000814";
+    oc.fillRect(0, 0, 2048, 2048);
+
+    // Draw stars
+    for (let i = 0; i < 300; i++) {
+        const sx = Math.random() * 2048;
+        const sy = Math.random() * 2048;
+        const sr = Math.random() * 1.5 + 0.3;
+        const brightness = Math.floor(Math.random() * 100 + 155);
+        oc.fillStyle = `rgba(${brightness},${brightness},${brightness + 30},${Math.random() * 0.5 + 0.5})`;
+        oc.beginPath();
+        oc.arc(sx, sy, sr, 0, Math.PI * 2);
+        oc.fill();
+    }
+
+    // Draw a large curved Earth surface across the bottom portion
+    const gradient = oc.createLinearGradient(0, 1200, 0, 2048);
+    gradient.addColorStop(0, "#0066cc");
+    gradient.addColorStop(0.3, "#1a8a3f");
+    gradient.addColorStop(0.5, "#2d7d3f");
+    gradient.addColorStop(0.7, "#1a6633");
+    gradient.addColorStop(1, "#0d3d1f");
+
+    // Draw curved horizon
+    oc.beginPath();
+    oc.moveTo(0, 1500);
+    oc.quadraticCurveTo(1024, 1200, 2048, 1500);
+    oc.lineTo(2048, 2048);
+    oc.lineTo(0, 2048);
+    oc.closePath();
+    oc.fillStyle = gradient;
+    oc.fill();
+
+    // Atmosphere glow along the horizon
+    const atmosGrad = oc.createLinearGradient(0, 1300, 0, 1550);
+    atmosGrad.addColorStop(0, "rgba(100,180,255,0)");
+    atmosGrad.addColorStop(0.5, "rgba(100,180,255,0.15)");
+    atmosGrad.addColorStop(1, "rgba(100,180,255,0)");
+    oc.fillStyle = atmosGrad;
+    oc.beginPath();
+    oc.moveTo(0, 1400);
+    oc.quadraticCurveTo(1024, 1100, 2048, 1400);
+    oc.lineTo(2048, 1600);
+    oc.quadraticCurveTo(1024, 1300, 0, 1600);
+    oc.closePath();
+    oc.fill();
+
+    // Add some continent-like patches (green/brown shapes)
+    const landColors = ["#2a7d3f", "#3a8d4a", "#1e6b30", "#4d9955"];
+    for (let i = 0; i < 8; i++) {
+        const lx = Math.random() * 2048;
+        const ly = 1400 + Math.random() * 400;
+        const lw = 80 + Math.random() * 200;
+        const lh = 40 + Math.random() * 100;
+        oc.fillStyle = landColors[Math.floor(Math.random() * landColors.length)];
+        oc.beginPath();
+        oc.ellipse(lx, ly, lw, lh, Math.random() * Math.PI, 0, Math.PI * 2);
+        oc.fill();
+    }
+
+    // Ocean patches
+    for (let i = 0; i < 5; i++) {
+        const ox = Math.random() * 2048;
+        const oy = 1450 + Math.random() * 350;
+        const ow = 60 + Math.random() * 150;
+        const oh = 30 + Math.random() * 80;
+        oc.fillStyle = "rgba(0,80,180,0.4)";
+        oc.beginPath();
+        oc.ellipse(ox, oy, ow, oh, Math.random() * Math.PI, 0, Math.PI * 2);
+        oc.fill();
+    }
+
+    // Cloud wisps across the surface
+    for (let i = 0; i < 12; i++) {
+        const cx = Math.random() * 2048;
+        const cy = 1350 + Math.random() * 400;
+        const cw = 60 + Math.random() * 180;
+        const ch = 15 + Math.random() * 40;
+        oc.fillStyle = `rgba(255,255,255,${0.05 + Math.random() * 0.1})`;
+        oc.beginPath();
+        oc.ellipse(cx, cy, cw, ch, Math.random() * 0.5, 0, Math.PI * 2);
+        oc.fill();
+    }
+
+    earthImg = offscreen;
+    earthLoaded = true;
+}
+
+function drawBackground() {
+    if (!earthLoaded) return;
+    // Slowly scroll the background downward
+    bgOffset = (bgOffset + 0.3) % earthImg.height;
+
+    // Tile the background to fill the canvas
+    const startY = -bgOffset;
+    for (let y = startY; y < canvas.height; y += earthImg.height) {
+        for (let x = 0; x < canvas.width; x += earthImg.width) {
+            ctx.drawImage(earthImg, x, y);
+        }
+    }
+}
+
+// Generate on load
+generateEarthBackground();
+
+// ====== HIGH SCORE BOARD ======
+function updateHighScoresDisplay() {
+    highScoreList.innerHTML = "";
+    if (highScores.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "No scores yet";
+        li.style.color = "#666";
+        li.style.listStyle = "none";
+        highScoreList.appendChild(li);
+        return;
+    }
+    highScores.slice(0, 10).forEach((s) => {
+        const li = document.createElement("li");
+        li.textContent = s.toLocaleString();
+        highScoreList.appendChild(li);
+    });
+}
+updateHighScoresDisplay();
 
 // ====== EVENT LISTENERS ======
 canvas.addEventListener("mousemove", (e) => {
@@ -26,7 +167,10 @@ canvas.addEventListener("mousemove", (e) => {
     mouse.y = e.clientY - rect.top;
 });
 
-canvas.addEventListener("mousedown", () => mouse.down = true);
+canvas.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    mouse.down = true;
+});
 canvas.addEventListener("mouseup", () => mouse.down = false);
 
 startBtn.addEventListener("click", startGame);
@@ -34,10 +178,8 @@ exitBtn.addEventListener("click", exitGame);
 
 // ====== GAME START ======
 function startGame() {
-    // Set canvas to full screen
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    // Hide cursor
     canvas.style.cursor = "none";
 
     mainMenu.style.display = "none";
@@ -47,9 +189,14 @@ function startGame() {
     score = 0;
     bullets = [];
     asteroids = [];
+    powerups = [];
+    laserCount = 1;
+    if (multiLaserTimer) clearTimeout(multiLaserTimer);
+    powerupIndicator.style.display = "none";
     gameRunning = true;
 
     spawnAsteroid();
+    schedulePowerup();
     requestAnimationFrame(gameLoop);
 }
 
@@ -57,39 +204,114 @@ function startGame() {
 function exitGame() {
     gameRunning = false;
 
+    // Clear powerup state
+    laserCount = 1;
+    if (multiLaserTimer) clearTimeout(multiLaserTimer);
+    powerupIndicator.style.display = "none";
+
     canvas.style.display = "none";
     exitBtn.style.display = "none";
     mainMenu.style.display = "flex";
 
-    // Save high score
-    if (score > highScore) {
-        highScore = score;
-        localStorage.setItem("asteroidHighScore", highScore);
+    // Save score to high score board
+    if (score > 0) {
+        highScores.push(score);
+        highScores.sort((a, b) => b - a); // Descending
+        highScores = highScores.slice(0, 10); // Keep top 10
+        localStorage.setItem("asteroidHighScores", JSON.stringify(highScores));
     }
-
-    highScoreDisplay.textContent = "High Score: " + highScore;
+    updateHighScoresDisplay();
 }
 
 // ====== SHOOTING ======
 function shoot() {
-    bullets.push({
-        x: mouse.x,
-        y: mouse.y,
-        size: 20, // Longer laser
-        speed: 12 // Faster
-    });
+    if (laserCount === 1) {
+        bullets.push({
+            x: mouse.x, y: mouse.y,
+            size: 20, speed: 12
+        });
+    } else {
+        // Multi-laser: spread evenly
+        const spreadAngle = 0.15;
+        const totalSpread = (laserCount - 1) * spreadAngle;
+        const startAngle = -totalSpread / 2;
+        for (let i = 0; i < laserCount; i++) {
+            const angle = startAngle + i * spreadAngle;
+            bullets.push({
+                x: mouse.x, y: mouse.y,
+                size: 20, speed: 12,
+                dx: Math.sin(angle),
+                dy: -Math.cos(angle)
+            });
+        }
+    }
+}
+
+// ====== POWERUPS ======
+function schedulePowerup() {
+    if (!gameRunning) return;
+    // Spawn a powerup every 12–22 seconds
+    setTimeout(() => {
+        if (!gameRunning) return;
+        spawnPowerup();
+        schedulePowerup();
+    }, 12000 + Math.random() * 10000);
+}
+
+function spawnPowerup() {
+    const margin = 80;
+    const x = margin + Math.random() * (canvas.width - margin * 2);
+    const y = margin + Math.random() * (canvas.height - margin * 2);
+    powerups.push({ x, y, size: 18, type: "multi-laser", spawnTime: Date.now() });
+}
+
+function drawPowerup(p) {
+    const pulse = 1 + 0.15 * Math.sin(Date.now() / 200);
+    const drawSize = p.size * pulse;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(Date.now() / 800);
+
+    // Draw a 5-pointed star
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+        const outerAngle = (i * 72 - 90) * Math.PI / 180;
+        const innerAngle = ((i * 72) + 36 - 90) * Math.PI / 180;
+        ctx.lineTo(Math.cos(outerAngle) * drawSize, Math.sin(outerAngle) * drawSize);
+        ctx.lineTo(Math.cos(innerAngle) * drawSize * 0.45, Math.sin(innerAngle) * drawSize * 0.45);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "lime";
+    ctx.shadowColor = "lime";
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.restore();
+}
+
+function collectPowerup(p) {
+    laserCount = Math.min(laserCount + 2, 7); // Add 2 lasers, max 7
+    powerupIndicator.textContent = "\u2733 MULTI-LASER x" + laserCount + " \u2733";
+    powerupIndicator.style.display = "block";
+
+    // Reset timer: effect lasts 8 seconds from last pickup
+    if (multiLaserTimer) clearTimeout(multiLaserTimer);
+    multiLaserTimer = setTimeout(() => {
+        laserCount = 1;
+        powerupIndicator.style.display = "none";
+    }, 8000);
 }
 
 // ====== ASTEROIDS ======
 function spawnAsteroid() {
     if (!gameRunning) return;
 
-    const size = Math.random() * 30 + 10; // 10–40 px
+    const size = Math.random() * 30 + 10;
     const edge = Math.floor(Math.random() * 4);
 
     let x, y;
-
-    // Spawn from edges
     if (edge === 0) { x = Math.random() * canvas.width; y = -size; }
     if (edge === 1) { x = canvas.width + size; y = Math.random() * canvas.height; }
     if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + size; }
@@ -98,18 +320,15 @@ function spawnAsteroid() {
     const angle = Math.atan2(canvas.height / 2 - y, canvas.width / 2 - x);
 
     asteroids.push({
-        x,
-        y,
-        size,
-        speed: 1 + (40 - size) / 30 * 3, // Smaller asteroids are faster
+        x, y, size,
+        speed: 1 + (40 - size) / 30 * 3,
         dx: Math.cos(angle),
         dy: Math.sin(angle),
-        rotation: 0, // Rotation angle
-        rotationSpeed: (Math.random() - 0.5) * 0.2, // Spin speed
-        shape: generateAsteroidShape(size) // Pre-generated shape
+        rotation: 0,
+        rotationSpeed: (Math.random() - 0.5) * 0.2,
+        shape: generateAsteroidShape(size)
     });
 
-    // Spawn new asteroid every 1–2 seconds
     setTimeout(spawnAsteroid, 800 + Math.random() * 800);
 }
 
@@ -123,20 +342,15 @@ function isColliding(a, b) {
 
 // ====== DRAW SPACESHIP ======
 function drawSpaceship(x, y) {
-    // Main body - blue
     ctx.fillStyle = "blue";
     ctx.fillRect(x - 10, y - 6, 20, 12);
-    // Wings - red
     ctx.fillStyle = "red";
     ctx.fillRect(x - 15, y - 3, 5, 6);
     ctx.fillRect(x + 10, y - 3, 5, 6);
-    // Cockpit - light blue
     ctx.fillStyle = "lightblue";
     ctx.fillRect(x - 4, y - 4, 8, 4);
-    // Thruster - orange
     ctx.fillStyle = "orange";
     ctx.fillRect(x - 3, y + 6, 6, 4);
-    // Thruster flame - yellow
     ctx.fillStyle = "yellow";
     ctx.fillRect(x - 2, y + 10, 4, 3);
 }
@@ -146,7 +360,6 @@ function drawAsteroid(x, y, size, rotation, shape) {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rotation);
-    // Draw irregular rocky shape
     ctx.beginPath();
     for (let i = 0; i < shape.length; i++) {
         const px = shape[i].x;
@@ -160,7 +373,6 @@ function drawAsteroid(x, y, size, rotation, shape) {
     ctx.restore();
 }
 
-// Generate irregular shape points
 function generateAsteroidShape(size) {
     const points = [];
     const numPoints = 6 + Math.floor(Math.random() * 4);
@@ -178,56 +390,64 @@ function gameLoop() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Draw scrolling background
+    drawBackground();
+
     // Draw spaceship at mouse position
     drawSpaceship(mouse.x, mouse.y);
 
     // Shoot lasers if mouse down and cooldown passed
-    if (mouse.down && Date.now() - lastShot > 300) { // 300ms cooldown for slower firing
+    if (mouse.down && Date.now() - lastShot > 300) {
         shoot();
         lastShot = Date.now();
     }
 
     // Update bullets
     bullets.forEach((b, i) => {
-        b.y -= b.speed;
-        // Draw laser as thin rectangle
+        if (b.dx !== undefined && b.dy !== undefined) {
+            b.x += b.dx * b.speed;
+            b.y += b.dy * b.speed;
+        } else {
+            b.y -= b.speed;
+        }
         ctx.fillStyle = "cyan";
-        ctx.fillRect(b.x - 1, b.y, 2, b.size); // Thin vertical laser
+        ctx.shadowColor = "cyan";
+        ctx.shadowBlur = 6;
+        ctx.fillRect(b.x - 1, b.y, 2, b.size);
+        ctx.shadowBlur = 0;
 
         // Remove off-screen bullets
-        if (b.y < 0) bullets.splice(i, 1);
+        if (b.y < -b.size || b.x < -b.size || b.x > canvas.width + b.size) {
+            bullets.splice(i, 1);
+        }
     });
 
     // Update asteroids
     asteroids.forEach((a, i) => {
         a.x += a.dx * a.speed;
         a.y += a.dy * a.speed;
-        a.rotation += a.rotationSpeed; // Spin
+        a.rotation += a.rotationSpeed;
 
         // Check collisions with other asteroids
         for (let j = i + 1; j < asteroids.length; j++) {
             const b = asteroids[j];
             if (isColliding(a, b)) {
-                // Split both if large enough
                 if (a.size > 15) {
                     const numPieces = 2;
                     for (let k = 0; k < numPieces; k++) {
                         const newSize = a.size / 2;
                         const newAngle = Math.random() * Math.PI * 2;
                         asteroids.push({
-                            x: a.x,
-                            y: a.y,
-                            size: newSize,
+                            x: a.x, y: a.y, size: newSize,
                             speed: 1 + (40 - newSize) / 30 * 3,
-                            dx: Math.cos(newAngle),
-                            dy: Math.sin(newAngle),
+                            dx: Math.cos(newAngle), dy: Math.sin(newAngle),
                             rotation: 0,
                             rotationSpeed: (Math.random() - 0.5) * 0.2,
                             shape: generateAsteroidShape(newSize)
                         });
                     }
                     asteroids.splice(i, 1);
-                    i--; // Adjust index
+                    i--;
                     break;
                 }
                 if (b.size > 15) {
@@ -236,29 +456,25 @@ function gameLoop() {
                         const newSize = b.size / 2;
                         const newAngle = Math.random() * Math.PI * 2;
                         asteroids.push({
-                            x: b.x,
-                            y: b.y,
-                            size: newSize,
+                            x: b.x, y: b.y, size: newSize,
                             speed: 1 + (40 - newSize) / 30 * 3,
-                            dx: Math.cos(newAngle),
-                            dy: Math.sin(newAngle),
+                            dx: Math.cos(newAngle), dy: Math.sin(newAngle),
                             rotation: 0,
                             rotationSpeed: (Math.random() - 0.5) * 0.2,
                             shape: generateAsteroidShape(newSize)
                         });
                     }
                     asteroids.splice(j, 1);
-                    j--; // Adjust index
+                    j--;
                 }
             }
         }
 
-        // Draw irregular shape with rotation
         drawAsteroid(a.x, a.y, a.size, a.rotation, a.shape);
 
         // Check spaceship collision
         if (isColliding({ x: mouse.x, y: mouse.y, size: 10 }, a)) {
-            exitGame(); // End game if hit
+            exitGame();
             return;
         }
 
@@ -266,19 +482,15 @@ function gameLoop() {
         bullets.forEach((b, j) => {
             if (isColliding({ x: b.x, y: b.y, size: b.size / 2 }, a)) {
                 score += Math.floor(100 - a.size);
-                // Split asteroid if large enough
                 if (a.size > 15) {
-                    const numPieces = 2 + Math.floor(Math.random() * 2); // 2-3 pieces
+                    const numPieces = 2 + Math.floor(Math.random() * 2);
                     for (let k = 0; k < numPieces; k++) {
                         const newSize = a.size / 2;
                         const newAngle = Math.random() * Math.PI * 2;
                         asteroids.push({
-                            x: a.x,
-                            y: a.y,
-                            size: newSize,
+                            x: a.x, y: a.y, size: newSize,
                             speed: 1 + (40 - newSize) / 30 * 3,
-                            dx: Math.cos(newAngle),
-                            dy: Math.sin(newAngle),
+                            dx: Math.cos(newAngle), dy: Math.sin(newAngle),
                             rotation: 0,
                             rotationSpeed: (Math.random() - 0.5) * 0.2,
                             shape: generateAsteroidShape(newSize)
@@ -287,15 +499,39 @@ function gameLoop() {
                 }
                 asteroids.splice(i, 1);
                 bullets.splice(j, 1);
-                return; // Exit inner loop
+                return;
             }
         });
+    });
+
+    // Draw and check powerups
+    powerups.forEach((p, i) => {
+        drawPowerup(p);
+
+        // Despawn after 10 seconds
+        if (Date.now() - p.spawnTime > 10000) {
+            powerups.splice(i, 1);
+            return;
+        }
+
+        // Check collection
+        if (isColliding({ x: mouse.x, y: mouse.y, size: 12 }, p)) {
+            collectPowerup(p);
+            powerups.splice(i, 1);
+        }
     });
 
     // Draw score
     ctx.fillStyle = "white";
     ctx.font = "20px Arial";
     ctx.fillText("Score: " + score, 10, 25);
+
+    // Show laser count during powerup
+    if (laserCount > 1) {
+        ctx.fillStyle = "lime";
+        ctx.font = "16px Arial";
+        ctx.fillText("Lasers: " + laserCount, 10, 50);
+    }
 
     requestAnimationFrame(gameLoop);
 }
