@@ -342,17 +342,186 @@ function isColliding(a, b) {
 
 // ====== DRAW SPACESHIP ======
 function drawSpaceship(x, y) {
-    ctx.fillStyle = "blue";
-    ctx.fillRect(x - 10, y - 6, 20, 12);
-    ctx.fillStyle = "red";
-    ctx.fillRect(x - 15, y - 3, 5, 6);
-    ctx.fillRect(x + 10, y - 3, 5, 6);
-    ctx.fillStyle = "lightblue";
-    ctx.fillRect(x - 4, y - 4, 8, 4);
-    ctx.fillStyle = "orange";
-    ctx.fillRect(x - 3, y + 6, 6, 4);
-    ctx.fillStyle = "yellow";
-    ctx.fillRect(x - 2, y + 10, 4, 3);
+    ctx.save();
+    ctx.translate(x, y);
+
+    const flicker = 0.7 + Math.random() * 0.3;
+
+    // === ENGINE GLOW (drawn first, behind everything) ===
+    // Main thruster flame
+    const mainFlame = ctx.createRadialGradient(0, 20, 1, 0, 24, 14 * flicker);
+    mainFlame.addColorStop(0, "rgba(255,120,30,0.9)");
+    mainFlame.addColorStop(0.3, "rgba(255,60,10,0.6)");
+    mainFlame.addColorStop(0.7, "rgba(200,30,0,0.2)");
+    mainFlame.addColorStop(1, "rgba(100,0,0,0)");
+    ctx.fillStyle = mainFlame;
+    ctx.beginPath();
+    ctx.ellipse(0, 24, 5 * flicker, 14 * flicker, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Side thruster flames
+    [-12, 12].forEach(sx => {
+        const sideFlame = ctx.createRadialGradient(sx, 14, 0, sx, 16, 7 * flicker);
+        sideFlame.addColorStop(0, "rgba(255,150,50,0.8)");
+        sideFlame.addColorStop(0.5, "rgba(255,60,10,0.3)");
+        sideFlame.addColorStop(1, "rgba(100,0,0,0)");
+        ctx.fillStyle = sideFlame;
+        ctx.beginPath();
+        ctx.ellipse(sx, 16, 3 * flicker, 7 * flicker, 0, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // === FORWARD-SWEPT WINGS (X-wing style, angled forward) ===
+    // Left upper wing (sweeps forward-left)
+    ctx.beginPath();
+    ctx.moveTo(-4, -4);
+    ctx.lineTo(-26, -18);
+    ctx.lineTo(-28, -16);
+    ctx.lineTo(-24, -12);
+    ctx.lineTo(-6, 2);
+    ctx.closePath();
+    const luwGrad = ctx.createLinearGradient(-28, -18, -4, 0);
+    luwGrad.addColorStop(0, "#1a3355");
+    luwGrad.addColorStop(1, "#3366aa");
+    ctx.fillStyle = luwGrad;
+    ctx.fill();
+    ctx.strokeStyle = "#5588cc";
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    // Right upper wing
+    ctx.beginPath();
+    ctx.moveTo(4, -4);
+    ctx.lineTo(26, -18);
+    ctx.lineTo(28, -16);
+    ctx.lineTo(24, -12);
+    ctx.lineTo(6, 2);
+    ctx.closePath();
+    const ruwGrad = ctx.createLinearGradient(28, -18, 4, 0);
+    ruwGrad.addColorStop(0, "#1a3355");
+    ruwGrad.addColorStop(1, "#3366aa");
+    ctx.fillStyle = ruwGrad;
+    ctx.fill();
+    ctx.stroke();
+
+    // Left lower wing (sweeps back)
+    ctx.beginPath();
+    ctx.moveTo(-5, 4);
+    ctx.lineTo(-20, 12);
+    ctx.lineTo(-18, 14);
+    ctx.lineTo(-12, 14);
+    ctx.lineTo(-5, 8);
+    ctx.closePath();
+    ctx.fillStyle = "#223366";
+    ctx.fill();
+
+    // Right lower wing
+    ctx.beginPath();
+    ctx.moveTo(5, 4);
+    ctx.lineTo(20, 12);
+    ctx.lineTo(18, 14);
+    ctx.lineTo(12, 14);
+    ctx.lineTo(5, 8);
+    ctx.closePath();
+    ctx.fillStyle = "#223366";
+    ctx.fill();
+
+    // Wing-tip cannons (left)
+    ctx.fillStyle = "#99aacc";
+    ctx.fillRect(-29, -19, 5, 2);
+    // Wing-tip cannons (right)
+    ctx.fillRect(24, -19, 5, 2);
+
+    // === MAIN FUSELAGE - angular diamond shape ===
+    ctx.beginPath();
+    ctx.moveTo(0, -24);       // Nose
+    ctx.lineTo(7, -8);        // Widen
+    ctx.lineTo(6, 8);
+    ctx.lineTo(4, 16);        // Tail taper
+    ctx.lineTo(-4, 16);
+    ctx.lineTo(-6, 8);
+    ctx.lineTo(-7, -8);
+    ctx.closePath();
+    const bodyGrad = ctx.createLinearGradient(-7, 0, 7, 0);
+    bodyGrad.addColorStop(0, "#1a2a44");
+    bodyGrad.addColorStop(0.35, "#335577");
+    bodyGrad.addColorStop(0.5, "#4477aa");
+    bodyGrad.addColorStop(0.65, "#335577");
+    bodyGrad.addColorStop(1, "#1a2a44");
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+    ctx.strokeStyle = "#5588bb";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    // Hull panel lines
+    ctx.strokeStyle = "rgba(100,160,220,0.3)";
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-3, -18); ctx.lineTo(-4, 14);
+    ctx.moveTo(3, -18); ctx.lineTo(4, 14);
+    ctx.moveTo(-6, 0); ctx.lineTo(6, 0);
+    ctx.stroke();
+
+    // Orange accent stripes
+    ctx.fillStyle = "#ff6600";
+    ctx.beginPath();
+    ctx.moveTo(-2, -20); ctx.lineTo(-1.5, 14); ctx.lineTo(-3, 14); ctx.lineTo(-3.5, -20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(2, -20); ctx.lineTo(1.5, 14); ctx.lineTo(3, 14); ctx.lineTo(3.5, -20);
+    ctx.closePath();
+    ctx.fill();
+
+    // === COCKPIT ===
+    ctx.beginPath();
+    ctx.moveTo(0, -22);
+    ctx.lineTo(4, -12);
+    ctx.lineTo(0, -8);
+    ctx.lineTo(-4, -12);
+    ctx.closePath();
+    const cockpitGrad = ctx.createLinearGradient(0, -22, 0, -8);
+    cockpitGrad.addColorStop(0, "#aaddff");
+    cockpitGrad.addColorStop(0.5, "#44aaee");
+    cockpitGrad.addColorStop(1, "#2266aa");
+    ctx.fillStyle = cockpitGrad;
+    ctx.shadowColor = "#66ccff";
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Cockpit frame
+    ctx.strokeStyle = "#88bbdd";
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+
+    // === ENGINE PODS (side-mounted) ===
+    [-12, 12].forEach(sx => {
+        ctx.beginPath();
+        ctx.moveTo(sx - 2, 6);
+        ctx.lineTo(sx + 2, 6);
+        ctx.lineTo(sx + 3, 14);
+        ctx.lineTo(sx - 3, 14);
+        ctx.closePath();
+        ctx.fillStyle = "#2a3a55";
+        ctx.fill();
+        ctx.strokeStyle = "#5577aa";
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+        // engine nozzle glow ring
+        ctx.beginPath();
+        ctx.arc(sx, 14, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,100,20,${0.4 + flicker * 0.3})`;
+        ctx.fill();
+    });
+
+    // Main engine nozzle
+    ctx.beginPath();
+    ctx.arc(0, 17, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,120,30,${0.5 + flicker * 0.3})`;
+    ctx.fill();
+
+    ctx.restore();
 }
 
 // ====== DRAW ASTEROID ======
