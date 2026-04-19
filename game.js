@@ -118,15 +118,22 @@ function isColliding(a, b) {
 
 // ====== DRAW SPACESHIP ======
 function drawSpaceship(x, y) {
-    ctx.fillStyle = "white";
-    // Main body
-    ctx.fillRect(x - 8, y - 5, 16, 10);
-    // Wings
-    ctx.fillRect(x - 12, y - 2, 4, 4);
-    ctx.fillRect(x + 8, y - 2, 4, 4);
-    // Thruster
+    // Main body - blue
+    ctx.fillStyle = "blue";
+    ctx.fillRect(x - 10, y - 6, 20, 12);
+    // Wings - red
+    ctx.fillStyle = "red";
+    ctx.fillRect(x - 15, y - 3, 5, 6);
+    ctx.fillRect(x + 10, y - 3, 5, 6);
+    // Cockpit - light blue
+    ctx.fillStyle = "lightblue";
+    ctx.fillRect(x - 4, y - 4, 8, 4);
+    // Thruster - orange
     ctx.fillStyle = "orange";
-    ctx.fillRect(x - 2, y + 5, 4, 3);
+    ctx.fillRect(x - 3, y + 6, 6, 4);
+    // Thruster flame - yellow
+    ctx.fillStyle = "yellow";
+    ctx.fillRect(x - 2, y + 10, 4, 3);
 }
 
 // ====== GAME LOOP ======
