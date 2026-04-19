@@ -207,8 +207,27 @@ function gameLoop() {
         bullets.forEach((b, j) => {
             if (isColliding({ x: b.x, y: b.y, size: b.size / 2 }, a)) {
                 score += Math.floor(100 - a.size);
+                // Split asteroid if large enough
+                if (a.size > 15) {
+                    const numPieces = 2 + Math.floor(Math.random() * 2); // 2-3 pieces
+                    for (let k = 0; k < numPieces; k++) {
+                        const newSize = a.size / 2;
+                        const newAngle = Math.random() * Math.PI * 2;
+                        asteroids.push({
+                            x: a.x,
+                            y: a.y,
+                            size: newSize,
+                            speed: 1 + (40 - newSize) / 30 * 3,
+                            dx: Math.cos(newAngle),
+                            dy: Math.sin(newAngle),
+                            rotation: 0,
+                            rotationSpeed: (Math.random() - 0.5) * 0.2
+                        });
+                    }
+                }
                 asteroids.splice(i, 1);
                 bullets.splice(j, 1);
+                return; // Exit inner loop
             }
         });
     });
