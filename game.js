@@ -101,7 +101,7 @@ function spawnAsteroid() {
         x,
         y,
         size,
-        speed: 1 + Math.random() * 1.5,
+        speed: 1 + (40 - size) / 30 * 3, // Smaller asteroids are faster
         dx: Math.cos(angle),
         dy: Math.sin(angle)
     });
