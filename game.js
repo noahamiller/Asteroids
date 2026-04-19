@@ -1,5 +1,5 @@
 // ====== BUILD INFO ======
-const BUILD_NUMBER = 18;
+const BUILD_NUMBER = 20;
 
 // ====== DOM ELEMENTS ======
 const canvas = document.getElementById("game-canvas");
@@ -28,6 +28,14 @@ let lastShot = 0;
 // Powerup state
 let laserCount = 1; // How many lasers fired per shot
 let multiLaserTimer = null;
+let rapidFireActive = false;
+let rapidFireTimer = null;
+
+// Powerup spawn probability (escalates on miss, resets on spawn)
+const POWERUP_CHANCE_BASE = 0.05;
+const POWERUP_CHANCE_MAX = 0.40;
+const POWERUP_CHANCE_STEP = 0.05;
+let powerupSpawnChance = POWERUP_CHANCE_BASE;
 
 // Background scroll
 let bgOffset = 0;
@@ -241,6 +249,9 @@ function startGame() {
     powerups = [];
     laserCount = 1;
     if (multiLaserTimer) clearTimeout(multiLaserTimer);
+    rapidFireActive = false;
+    if (rapidFireTimer) clearTimeout(rapidFireTimer);
+    powerupSpawnChance = POWERUP_CHANCE_BASE;
     powerupIndicator.style.display = "none";
     gameRunning = true;
 
@@ -256,6 +267,8 @@ function exitGame() {
     // Clear powerup state
     laserCount = 1;
     if (multiLaserTimer) clearTimeout(multiLaserTimer);
+    rapidFireActive = false;
+    if (rapidFireTimer) clearTimeout(rapidFireTimer);
     powerupIndicator.style.display = "none";
 
     canvas.style.display = "none";
@@ -329,19 +342,24 @@ function shoot() {
 // ====== POWERUPS ======
 function schedulePowerup() {
     if (!gameRunning) return;
-    // Spawn a powerup every 12–22 seconds
     setTimeout(() => {
         if (!gameRunning) return;
-        spawnPowerup();
+        if (Math.random() < powerupSpawnChance) {
+            spawnPowerup();
+            powerupSpawnChance = POWERUP_CHANCE_BASE;
+        } else {
+            powerupSpawnChance = Math.min(powerupSpawnChance + POWERUP_CHANCE_STEP, POWERUP_CHANCE_MAX);
+        }
         schedulePowerup();
-    }, 12000 + Math.random() * 10000);
+    }, 5000);
 }
 
 function spawnPowerup() {
     const margin = 80;
     const x = margin + Math.random() * (canvas.width - margin * 2);
     const y = margin + Math.random() * (canvas.height - margin * 2);
-    powerups.push({ x, y, size: 18, type: "multi-laser", spawnTime: Date.now() });
+    const type = Math.random() < 0.5 ? "multi-laser" : "rapid-fire";
+    powerups.push({ x, y, size: 18, type, spawnTime: Date.now() });
 }
 
 function drawPowerup(p) {
@@ -350,37 +368,73 @@ function drawPowerup(p) {
 
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.rotate(Date.now() / 800);
 
-    // Draw a 5-pointed star
-    ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-        const outerAngle = (i * 72 - 90) * Math.PI / 180;
-        const innerAngle = ((i * 72) + 36 - 90) * Math.PI / 180;
-        ctx.lineTo(Math.cos(outerAngle) * drawSize, Math.sin(outerAngle) * drawSize);
-        ctx.lineTo(Math.cos(innerAngle) * drawSize * 0.45, Math.sin(innerAngle) * drawSize * 0.45);
+    if (p.type === "multi-laser") {
+        ctx.rotate(Date.now() / 800);
+        // 5-pointed star in lime
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+            const outerAngle = (i * 72 - 90) * Math.PI / 180;
+            const innerAngle = ((i * 72) + 36 - 90) * Math.PI / 180;
+            ctx.lineTo(Math.cos(outerAngle) * drawSize, Math.sin(outerAngle) * drawSize);
+            ctx.lineTo(Math.cos(innerAngle) * drawSize * 0.45, Math.sin(innerAngle) * drawSize * 0.45);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "lime";
+        ctx.shadowColor = "lime";
+        ctx.shadowBlur = 12;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    } else {
+        ctx.rotate(-Date.now() / 600);
+        // 4-pointed star in gold, counter-clockwise rotation
+        ctx.beginPath();
+        for (let i = 0; i < 4; i++) {
+            const outerAngle = (i * 90 - 90) * Math.PI / 180;
+            const innerAngle = ((i * 90) + 45 - 90) * Math.PI / 180;
+            ctx.lineTo(Math.cos(outerAngle) * drawSize, Math.sin(outerAngle) * drawSize);
+            ctx.lineTo(Math.cos(innerAngle) * drawSize * 0.4, Math.sin(innerAngle) * drawSize * 0.4);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "#ffcc00";
+        ctx.shadowColor = "#ffcc00";
+        ctx.shadowBlur = 15;
+        ctx.fill();
+        ctx.shadowBlur = 0;
     }
-    ctx.closePath();
-    ctx.fillStyle = "lime";
-    ctx.shadowColor = "lime";
-    ctx.shadowBlur = 12;
-    ctx.fill();
-    ctx.shadowBlur = 0;
 
     ctx.restore();
 }
 
-function collectPowerup(p) {
-    laserCount = Math.min(laserCount + 2, 7); // Add 2 lasers, max 7
-    powerupIndicator.textContent = "\u2733 MULTI-LASER x" + laserCount + " \u2733";
-    powerupIndicator.style.display = "block";
-
-    // Reset timer: effect lasts 8 seconds from last pickup
-    if (multiLaserTimer) clearTimeout(multiLaserTimer);
-    multiLaserTimer = setTimeout(() => {
-        laserCount = 1;
+function updatePowerupIndicator() {
+    const parts = [];
+    if (laserCount > 1) parts.push("\u2733 MULTI-LASER x" + laserCount);
+    if (rapidFireActive) parts.push("\u26a1 RAPID FIRE x1.75");
+    if (parts.length > 0) {
+        powerupIndicator.textContent = parts.join("  |  ");
+        powerupIndicator.style.display = "block";
+    } else {
         powerupIndicator.style.display = "none";
-    }, 8000);
+    }
+}
+
+function collectPowerup(p) {
+    if (p.type === "multi-laser") {
+        laserCount = Math.min(laserCount + 2, 7);
+        if (multiLaserTimer) clearTimeout(multiLaserTimer);
+        multiLaserTimer = setTimeout(() => {
+            laserCount = 1;
+            updatePowerupIndicator();
+        }, 8000);
+    } else {
+        rapidFireActive = true;
+        if (rapidFireTimer) clearTimeout(rapidFireTimer);
+        rapidFireTimer = setTimeout(() => {
+            rapidFireActive = false;
+            updatePowerupIndicator();
+        }, 8000);
+    }
+    updatePowerupIndicator();
 }
 
 // ====== ASTEROIDS ======
@@ -645,7 +699,7 @@ function gameLoop() {
     drawSpaceship(mouse.x, mouse.y);
 
     // Shoot lasers if mouse down and cooldown passed
-    if (mouse.down && Date.now() - lastShot > 300) {
+    if (mouse.down && Date.now() - lastShot > (rapidFireActive ? 171 : 300)) {
         shoot();
         lastShot = Date.now();
     }
@@ -773,13 +827,6 @@ function gameLoop() {
     ctx.fillStyle = "white";
     ctx.font = "20px Arial";
     ctx.fillText("Score: " + score, 10, 25);
-
-    // Show laser count during powerup
-    if (laserCount > 1) {
-        ctx.fillStyle = "lime";
-        ctx.font = "16px Arial";
-        ctx.fillText("Lasers: " + laserCount, 10, 50);
-    }
 
     requestAnimationFrame(gameLoop);
 }
