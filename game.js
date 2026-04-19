@@ -103,7 +103,9 @@ function spawnAsteroid() {
         size,
         speed: 1 + (40 - size) / 30 * 3, // Smaller asteroids are faster
         dx: Math.cos(angle),
-        dy: Math.sin(angle)
+        dy: Math.sin(angle),
+        rotation: 0, // Rotation angle
+        rotationSpeed: (Math.random() - 0.5) * 0.2 // Spin speed
     });
 
     // Spawn new asteroid every 1–2 seconds
@@ -138,6 +140,28 @@ function drawSpaceship(x, y) {
     ctx.fillRect(x - 2, y + 10, 4, 3);
 }
 
+// ====== DRAW ASTEROID ======
+function drawAsteroid(x, y, size, rotation) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    // Draw irregular rocky shape
+    ctx.beginPath();
+    const points = 6 + Math.floor(Math.random() * 4); // 6-9 points
+    for (let i = 0; i < points; i++) {
+        const angle = (i / points) * Math.PI * 2;
+        const radius = size * (0.7 + Math.random() * 0.6); // Vary radius
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "gray";
+    ctx.fill();
+    ctx.restore();
+}
+
 // ====== GAME LOOP ======
 function gameLoop() {
     if (!gameRunning) return;
@@ -168,11 +192,10 @@ function gameLoop() {
     asteroids.forEach((a, i) => {
         a.x += a.dx * a.speed;
         a.y += a.dy * a.speed;
+        a.rotation += a.rotationSpeed; // Spin
 
-        ctx.beginPath();
-        ctx.fillStyle = "gray";
-        ctx.arc(a.x, a.y, a.size, 0, Math.PI * 2);
-        ctx.fill();
+        // Draw irregular shape with rotation
+        drawAsteroid(a.x, a.y, a.size, a.rotation);
 
         // Check spaceship collision
         if (isColliding({ x: mouse.x, y: mouse.y, size: 10 }, a)) {
