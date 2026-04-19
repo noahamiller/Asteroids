@@ -174,6 +174,12 @@ function gameLoop() {
         ctx.arc(a.x, a.y, a.size, 0, Math.PI * 2);
         ctx.fill();
 
+        // Check spaceship collision
+        if (isColliding({ x: mouse.x, y: mouse.y, size: 10 }, a)) {
+            exitGame(); // End game if hit
+            return;
+        }
+
         // Bullet collisions
         bullets.forEach((b, j) => {
             if (isColliding({ x: b.x, y: b.y, size: b.size / 2 }, a)) {
