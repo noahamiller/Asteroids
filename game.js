@@ -37,6 +37,8 @@ function startGame() {
     // Set canvas to full screen
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    // Hide cursor
+    canvas.style.cursor = "none";
 
     mainMenu.style.display = "none";
     canvas.style.display = "block";
