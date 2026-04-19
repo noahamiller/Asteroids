@@ -1,3 +1,6 @@
+// ====== BUILD INFO ======
+const BUILD_NUMBER = 18;
+
 // ====== DOM ELEMENTS ======
 const canvas = document.getElementById("game-canvas");
 const ctx = canvas.getContext("2d");
@@ -158,7 +161,8 @@ function updateHighScoresDisplay() {
     }
     highScores.slice(0, 10).forEach((entry) => {
         const li = document.createElement("li");
-        li.textContent = entry.name + "  " + entry.score.toLocaleString();
+        const buildTag = entry.build ? " (b" + entry.build + ")" : "";
+        li.textContent = entry.name + "  " + entry.score.toLocaleString() + buildTag;
         highScoreList.appendChild(li);
     });
 }
@@ -185,6 +189,7 @@ function saveScoreToFirestore(name, scoreVal) {
     return db.collection("highscores").add({
         name: name,
         score: scoreVal,
+        build: BUILD_NUMBER,
         timestamp: firebase.firestore.FieldValue.serverTimestamp()
     }).then(() => {
         // After saving, prune to top 10
@@ -280,7 +285,7 @@ function saveScoreWithInitials(initials) {
         .catch((err) => {
             console.error("Failed to save score:", err);
             // Fallback: update local display anyway
-            highScores.push({ name: initials, score: score });
+            highScores.push({ name: initials, score: score, build: BUILD_NUMBER });
             highScores.sort((a, b) => b.score - a.score);
             highScores = highScores.slice(0, 10);
             updateHighScoresDisplay();
