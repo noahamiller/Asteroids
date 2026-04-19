@@ -18,7 +18,7 @@ let asteroids = [];
 let powerups = [];
 let mouse = { x: 0, y: 0, down: false };
 let score = 0;
-let highScores = JSON.parse(localStorage.getItem("asteroidHighScores") || "[]");
+let highScores = [];
 let gameRunning = false;
 let lastShot = 0;
 
@@ -158,15 +158,51 @@ function updateHighScoresDisplay() {
     }
     highScores.slice(0, 10).forEach((entry) => {
         const li = document.createElement("li");
-        if (typeof entry === "object" && entry.name) {
-            li.textContent = entry.name + "  " + entry.score.toLocaleString();
-        } else {
-            li.textContent = entry.toLocaleString();
-        }
+        li.textContent = entry.name + "  " + entry.score.toLocaleString();
         highScoreList.appendChild(li);
     });
 }
-updateHighScoresDisplay();
+
+// ====== FIRESTORE HIGH SCORES ======
+function loadHighScores() {
+    db.collection("highscores")
+        .orderBy("score", "desc")
+        .limit(10)
+        .get()
+        .then((snapshot) => {
+            highScores = [];
+            snapshot.forEach((doc) => {
+                highScores.push(doc.data());
+            });
+            updateHighScoresDisplay();
+        })
+        .catch((err) => {
+            console.error("Failed to load high scores:", err);
+        });
+}
+
+function saveScoreToFirestore(name, scoreVal) {
+    return db.collection("highscores").add({
+        name: name,
+        score: scoreVal,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    }).then(() => {
+        // After saving, prune to top 10
+        return db.collection("highscores")
+            .orderBy("score", "desc")
+            .get()
+            .then((snapshot) => {
+                const docs = snapshot.docs;
+                if (docs.length > 10) {
+                    const batch = db.batch();
+                    docs.slice(10).forEach((doc) => batch.delete(doc.ref));
+                    return batch.commit();
+                }
+            });
+    });
+}
+
+loadHighScores();
 
 // ====== EVENT LISTENERS ======
 canvas.addEventListener("mousemove", (e) => {
@@ -223,7 +259,7 @@ function exitGame() {
     if (score > 0) {
         // Show initials prompt
         finalScoreText.textContent = "Score: " + score.toLocaleString();
-        initialsInput.value = "";
+        initialsInput.value = "XX";
         initialsOverlay.style.display = "flex";
         initialsInput.focus();
     } else {
@@ -232,22 +268,23 @@ function exitGame() {
 }
 
 function saveScoreWithInitials(initials) {
-    initials = initials.toUpperCase().replace(/[^A-Z]/g, "").substring(0, 3);
-    if (!initials) initials = "AAA";
-    while (initials.length < 3) initials += "_";
-
-    highScores.push({ name: initials, score: score });
-    highScores.sort((a, b) => {
-        const sa = typeof a === "object" ? a.score : a;
-        const sb = typeof b === "object" ? b.score : b;
-        return sb - sa;
-    });
-    highScores = highScores.slice(0, 10);
-    localStorage.setItem("asteroidHighScores", JSON.stringify(highScores));
+    initials = initials.toUpperCase().replace(/[^A-Z]/g, "").substring(0, 2);
+    if (!initials) initials = "XX";
+    while (initials.length < 2) initials += "X";
 
     initialsOverlay.style.display = "none";
     mainMenu.style.display = "flex";
-    updateHighScoresDisplay();
+
+    saveScoreToFirestore(initials, score)
+        .then(() => loadHighScores())
+        .catch((err) => {
+            console.error("Failed to save score:", err);
+            // Fallback: update local display anyway
+            highScores.push({ name: initials, score: score });
+            highScores.sort((a, b) => b.score - a.score);
+            highScores = highScores.slice(0, 10);
+            updateHighScoresDisplay();
+        });
 }
 
 initialsSubmit.addEventListener("click", () => {
