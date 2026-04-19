@@ -204,6 +204,55 @@ function gameLoop() {
         a.y += a.dy * a.speed;
         a.rotation += a.rotationSpeed; // Spin
 
+        // Check collisions with other asteroids
+        for (let j = i + 1; j < asteroids.length; j++) {
+            const b = asteroids[j];
+            if (isColliding(a, b)) {
+                // Split both if large enough
+                if (a.size > 15) {
+                    const numPieces = 2;
+                    for (let k = 0; k < numPieces; k++) {
+                        const newSize = a.size / 2;
+                        const newAngle = Math.random() * Math.PI * 2;
+                        asteroids.push({
+                            x: a.x,
+                            y: a.y,
+                            size: newSize,
+                            speed: 1 + (40 - newSize) / 30 * 3,
+                            dx: Math.cos(newAngle),
+                            dy: Math.sin(newAngle),
+                            rotation: 0,
+                            rotationSpeed: (Math.random() - 0.5) * 0.2,
+                            shape: generateAsteroidShape(newSize)
+                        });
+                    }
+                    asteroids.splice(i, 1);
+                    i--; // Adjust index
+                    break;
+                }
+                if (b.size > 15) {
+                    const numPieces = 2;
+                    for (let k = 0; k < numPieces; k++) {
+                        const newSize = b.size / 2;
+                        const newAngle = Math.random() * Math.PI * 2;
+                        asteroids.push({
+                            x: b.x,
+                            y: b.y,
+                            size: newSize,
+                            speed: 1 + (40 - newSize) / 30 * 3,
+                            dx: Math.cos(newAngle),
+                            dy: Math.sin(newAngle),
+                            rotation: 0,
+                            rotationSpeed: (Math.random() - 0.5) * 0.2,
+                            shape: generateAsteroidShape(newSize)
+                        });
+                    }
+                    asteroids.splice(j, 1);
+                    j--; // Adjust index
+                }
+            }
+        }
+
         // Draw irregular shape with rotation
         drawAsteroid(a.x, a.y, a.size, a.rotation, a.shape);
 
