@@ -33,6 +33,10 @@ exitBtn.addEventListener("click", exitGame);
 
 // ====== GAME START ======
 function startGame() {
+    // Set canvas to full screen
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
     mainMenu.style.display = "none";
     canvas.style.display = "block";
     exitBtn.style.display = "block";
