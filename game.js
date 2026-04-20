@@ -1,5 +1,20 @@
 // ====== BUILD INFO ======
-const BUILD_NUMBER = 22;
+const BUILD_NUMBER = 23;
+
+// ====== TUNABLE CONSTANTS ======
+const POWERUP_DURATION        = 8000;   // ms a powerup lasts per pickup
+const POWERUP_MAX_DURATION    = 30000;  // ms hard cap regardless of refreshes
+const POWERUP_SPAWN_MIN       = 12000;  // ms minimum time between spawns per type
+const POWERUP_SPAWN_MAX       = 20000;  // ms maximum time between spawns per type
+const POWERUP_STAGGER_RAPID   = 6000;   // ms before rapid-fire starts spawning
+const POWERUP_STAGGER_PIERCE  = 11000;  // ms before pierce-laser starts spawning
+
+const MULTI_LASER_INCREMENT   = 2;      // lasers added per pickup
+const MULTI_LASER_MAX         = 9;      // max laser count
+
+const RAPID_FIRE_MULTIPLIER   = 1.75;   // fire rate multiplier per stack
+const RAPID_FIRE_MIN_COOLDOWN = 100;    // ms fastest possible fire rate
+const BASE_SHOT_COOLDOWN      = 300;    // ms base fire rate
 
 // ====== DOM ELEMENTS ======
 document.getElementById("build-number").textContent = "Build " + BUILD_NUMBER;
@@ -27,19 +42,15 @@ let gameRunning = false;
 let lastShot = 0;
 
 // Powerup state
-let laserCount = 1; // How many lasers fired per shot
+let laserCount = 1;
 let multiLaserTimer = null;
-let rapidFireActive = false;
+let multiLaserStartTime = 0;
+let rapidFireMultiplier = 1.0;
 let rapidFireTimer = null;
-
-// Powerup spawn probability (per-type, escalates on miss, resets on spawn)
-const POWERUP_CHANCE_BASE = 0.05;
-const POWERUP_CHANCE_MAX = 0.40;
-const POWERUP_CHANCE_STEP = 0.05;
-const powerupState = {
-    "multi-laser": { chance: POWERUP_CHANCE_BASE },
-    "rapid-fire":  { chance: POWERUP_CHANCE_BASE }
-};
+let rapidFireStartTime = 0;
+let pierceActive = false;
+let pierceTimer = null;
+let pierceStartTime = 0;
 
 // Background scroll
 let bgOffset = 0;
@@ -252,16 +263,20 @@ function startGame() {
     powerups = [];
     laserCount = 1;
     if (multiLaserTimer) clearTimeout(multiLaserTimer);
-    rapidFireActive = false;
+    rapidFireMultiplier = 1.0;
     if (rapidFireTimer) clearTimeout(rapidFireTimer);
-    powerupState["multi-laser"].chance = POWERUP_CHANCE_BASE;
-    powerupState["rapid-fire"].chance = POWERUP_CHANCE_BASE;
+    rapidFireStartTime = 0;
+    pierceActive = false;
+    if (pierceTimer) clearTimeout(pierceTimer);
+    pierceStartTime = 0;
+    multiLaserStartTime = 0;
     powerupIndicator.style.display = "none";
     gameRunning = true;
 
     spawnAsteroid();
     schedulePowerup("multi-laser");
-    schedulePowerup("rapid-fire");
+    schedulePowerup("rapid-fire", POWERUP_STAGGER_RAPID + Math.random() * 2000);
+    schedulePowerup("pierce-laser", POWERUP_STAGGER_PIERCE + Math.random() * 2000);
     requestAnimationFrame(gameLoop);
 }
 
@@ -272,8 +287,13 @@ function exitGame() {
     // Clear powerup state
     laserCount = 1;
     if (multiLaserTimer) clearTimeout(multiLaserTimer);
-    rapidFireActive = false;
+    multiLaserStartTime = 0;
+    rapidFireMultiplier = 1.0;
     if (rapidFireTimer) clearTimeout(rapidFireTimer);
+    rapidFireStartTime = 0;
+    pierceActive = false;
+    if (pierceTimer) clearTimeout(pierceTimer);
+    pierceStartTime = 0;
     powerupIndicator.style.display = "none";
 
     canvas.style.display = "none";
@@ -345,18 +365,14 @@ function shoot() {
 }
 
 // ====== POWERUPS ======
-function schedulePowerup(type) {
+function schedulePowerup(type, initialDelay) {
     if (!gameRunning) return;
+    const delay = initialDelay !== undefined ? initialDelay : POWERUP_SPAWN_MIN + Math.random() * (POWERUP_SPAWN_MAX - POWERUP_SPAWN_MIN);
     setTimeout(() => {
         if (!gameRunning) return;
-        if (Math.random() < powerupState[type].chance) {
-            spawnPowerup(type);
-            powerupState[type].chance = POWERUP_CHANCE_BASE;
-        } else {
-            powerupState[type].chance = Math.min(powerupState[type].chance + POWERUP_CHANCE_STEP, POWERUP_CHANCE_MAX);
-        }
+        spawnPowerup(type);
         schedulePowerup(type);
-    }, 3000);
+    }, delay);
 }
 
 function spawnPowerup(type) {
@@ -389,7 +405,7 @@ function drawPowerup(p) {
         ctx.shadowBlur = 12;
         ctx.fill();
         ctx.shadowBlur = 0;
-    } else {
+    } else if (p.type === "rapid-fire") {
         ctx.rotate(-Date.now() / 600);
         // 4-pointed star in gold, counter-clockwise rotation
         ctx.beginPath();
@@ -405,6 +421,22 @@ function drawPowerup(p) {
         ctx.shadowBlur = 15;
         ctx.fill();
         ctx.shadowBlur = 0;
+    } else {
+        ctx.rotate(Date.now() / 1000);
+        // 3-pointed star in magenta (pierce-laser)
+        ctx.beginPath();
+        for (let i = 0; i < 3; i++) {
+            const outerAngle = (i * 120 - 90) * Math.PI / 180;
+            const innerAngle = ((i * 120) + 60 - 90) * Math.PI / 180;
+            ctx.lineTo(Math.cos(outerAngle) * drawSize, Math.sin(outerAngle) * drawSize);
+            ctx.lineTo(Math.cos(innerAngle) * drawSize * 0.4, Math.sin(innerAngle) * drawSize * 0.4);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "#ff00ff";
+        ctx.shadowColor = "#ff00ff";
+        ctx.shadowBlur = 15;
+        ctx.fill();
+        ctx.shadowBlur = 0;
     }
 
     ctx.restore();
@@ -413,7 +445,8 @@ function drawPowerup(p) {
 function updatePowerupIndicator() {
     const parts = [];
     if (laserCount > 1) parts.push("\u2733 MULTI-LASER x" + laserCount);
-    if (rapidFireActive) parts.push("\u26a1 RAPID FIRE x1.75");
+    if (rapidFireMultiplier > 1) parts.push("\u26a1 RAPID FIRE x" + rapidFireMultiplier.toFixed(2));
+    if (pierceActive) parts.push("\u25c6 PIERCE");
     if (parts.length > 0) {
         powerupIndicator.textContent = parts.join("  |  ");
         powerupIndicator.style.display = "block";
@@ -422,22 +455,43 @@ function updatePowerupIndicator() {
     }
 }
 
-function collectPowerup(p) {
-    if (p.type === "multi-laser") {
-        laserCount = Math.min(laserCount + 2, 7);
+function refreshPowerupTimer(type) {
+    if (type === "multi-laser" && laserCount > 1) {
         if (multiLaserTimer) clearTimeout(multiLaserTimer);
-        multiLaserTimer = setTimeout(() => {
-            laserCount = 1;
-            updatePowerupIndicator();
-        }, 8000);
-    } else {
-        rapidFireActive = true;
+        const remaining = Math.min(POWERUP_DURATION, POWERUP_MAX_DURATION - (Date.now() - multiLaserStartTime));
+        if (remaining <= 0) { laserCount = 1; updatePowerupIndicator(); return; }
+        multiLaserTimer = setTimeout(() => { laserCount = 1; updatePowerupIndicator(); }, remaining);
+    } else if (type === "rapid-fire" && rapidFireMultiplier > 1) {
         if (rapidFireTimer) clearTimeout(rapidFireTimer);
-        rapidFireTimer = setTimeout(() => {
-            rapidFireActive = false;
-            updatePowerupIndicator();
-        }, 8000);
+        const remaining = Math.min(POWERUP_DURATION, POWERUP_MAX_DURATION - (Date.now() - rapidFireStartTime));
+        if (remaining <= 0) { rapidFireMultiplier = 1.0; updatePowerupIndicator(); return; }
+        rapidFireTimer = setTimeout(() => { rapidFireMultiplier = 1.0; updatePowerupIndicator(); }, remaining);
+    } else if (type === "pierce-laser" && pierceActive) {
+        if (pierceTimer) clearTimeout(pierceTimer);
+        const remaining = Math.min(POWERUP_DURATION, POWERUP_MAX_DURATION - (Date.now() - pierceStartTime));
+        if (remaining <= 0) { pierceActive = false; updatePowerupIndicator(); return; }
+        pierceTimer = setTimeout(() => { pierceActive = false; updatePowerupIndicator(); }, remaining);
     }
+}
+
+function collectPowerup(p) {
+    // Apply effect, recording start time only on fresh activation
+    if (p.type === "multi-laser") {
+        if (laserCount === 1) multiLaserStartTime = Date.now();
+        laserCount = Math.min(laserCount + MULTI_LASER_INCREMENT, MULTI_LASER_MAX);
+    } else if (p.type === "rapid-fire") {
+        if (rapidFireMultiplier === 1.0) rapidFireStartTime = Date.now();
+        rapidFireMultiplier *= RAPID_FIRE_MULTIPLIER;
+    } else {
+        if (!pierceActive) pierceStartTime = Date.now();
+        pierceActive = true;
+    }
+
+    // Refresh ALL active timers, each capped by its own hard limit
+    refreshPowerupTimer("multi-laser");
+    refreshPowerupTimer("rapid-fire");
+    refreshPowerupTimer("pierce-laser");
+
     updatePowerupIndicator();
 }
 
@@ -703,7 +757,7 @@ function gameLoop() {
     drawSpaceship(mouse.x, mouse.y);
 
     // Shoot lasers if mouse down and cooldown passed
-    if (mouse.down && Date.now() - lastShot > (rapidFireActive ? 171 : 300)) {
+    if (mouse.down && Date.now() - lastShot > Math.max(RAPID_FIRE_MIN_COOLDOWN, Math.round(BASE_SHOT_COOLDOWN / rapidFireMultiplier))) {
         shoot();
         lastShot = Date.now();
     }
@@ -716,8 +770,9 @@ function gameLoop() {
         } else {
             b.y -= b.speed;
         }
-        ctx.fillStyle = "cyan";
-        ctx.shadowColor = "cyan";
+        const laserColor = pierceActive ? "#ff00ff" : "cyan";
+        ctx.fillStyle = laserColor;
+        ctx.shadowColor = laserColor;
         ctx.shadowBlur = 6;
         ctx.fillRect(b.x - 1, b.y, 2, b.size);
         ctx.shadowBlur = 0;
@@ -804,7 +859,7 @@ function gameLoop() {
                     }
                 }
                 asteroids.splice(i, 1);
-                bullets.splice(j, 1);
+                if (!pierceActive) bullets.splice(j, 1);
                 return;
             }
         });
