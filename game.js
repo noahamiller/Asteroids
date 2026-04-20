@@ -1,7 +1,8 @@
 // ====== BUILD INFO ======
-const BUILD_NUMBER = 20;
+const BUILD_NUMBER = 21;
 
 // ====== DOM ELEMENTS ======
+document.getElementById("build-number").textContent = "Build " + BUILD_NUMBER;
 const canvas = document.getElementById("game-canvas");
 const ctx = canvas.getContext("2d");
 
@@ -31,11 +32,14 @@ let multiLaserTimer = null;
 let rapidFireActive = false;
 let rapidFireTimer = null;
 
-// Powerup spawn probability (escalates on miss, resets on spawn)
+// Powerup spawn probability (per-type, escalates on miss, resets on spawn)
 const POWERUP_CHANCE_BASE = 0.05;
 const POWERUP_CHANCE_MAX = 0.40;
 const POWERUP_CHANCE_STEP = 0.05;
-let powerupSpawnChance = POWERUP_CHANCE_BASE;
+const powerupState = {
+    "multi-laser": { chance: POWERUP_CHANCE_BASE },
+    "rapid-fire":  { chance: POWERUP_CHANCE_BASE }
+};
 
 // Background scroll
 let bgOffset = 0;
@@ -251,12 +255,14 @@ function startGame() {
     if (multiLaserTimer) clearTimeout(multiLaserTimer);
     rapidFireActive = false;
     if (rapidFireTimer) clearTimeout(rapidFireTimer);
-    powerupSpawnChance = POWERUP_CHANCE_BASE;
+    powerupState["multi-laser"].chance = POWERUP_CHANCE_BASE;
+    powerupState["rapid-fire"].chance = POWERUP_CHANCE_BASE;
     powerupIndicator.style.display = "none";
     gameRunning = true;
 
     spawnAsteroid();
-    schedulePowerup();
+    schedulePowerup("multi-laser");
+    schedulePowerup("rapid-fire");
     requestAnimationFrame(gameLoop);
 }
 
@@ -340,25 +346,24 @@ function shoot() {
 }
 
 // ====== POWERUPS ======
-function schedulePowerup() {
+function schedulePowerup(type) {
     if (!gameRunning) return;
     setTimeout(() => {
         if (!gameRunning) return;
-        if (Math.random() < powerupSpawnChance) {
-            spawnPowerup();
-            powerupSpawnChance = POWERUP_CHANCE_BASE;
+        if (Math.random() < powerupState[type].chance) {
+            spawnPowerup(type);
+            powerupState[type].chance = POWERUP_CHANCE_BASE;
         } else {
-            powerupSpawnChance = Math.min(powerupSpawnChance + POWERUP_CHANCE_STEP, POWERUP_CHANCE_MAX);
+            powerupState[type].chance = Math.min(powerupState[type].chance + POWERUP_CHANCE_STEP, POWERUP_CHANCE_MAX);
         }
-        schedulePowerup();
+        schedulePowerup(type);
     }, 5000);
 }
 
-function spawnPowerup() {
+function spawnPowerup(type) {
     const margin = 80;
     const x = margin + Math.random() * (canvas.width - margin * 2);
     const y = margin + Math.random() * (canvas.height - margin * 2);
-    const type = Math.random() < 0.5 ? "multi-laser" : "rapid-fire";
     powerups.push({ x, y, size: 18, type, spawnTime: Date.now() });
 }
 
