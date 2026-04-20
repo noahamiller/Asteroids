@@ -1,5 +1,5 @@
 // ====== BUILD INFO ======
-const BUILD_NUMBER = 25;
+const BUILD_NUMBER = 26;
 
 // ====== TUNABLE CONSTANTS ======
 const POWERUP_DURATION        = 9500;   // ms a powerup lasts per pickup
@@ -37,12 +37,13 @@ const WRAP_OVERLAP    = 10;   // px of object still visible before teleporting t
 const SHIP_VISUAL_SIZE = 30;  // px radius used for ship wrap threshold
 
 // Shield battery pickup
-const BATTERY_SPAWN_CHANCE_LOW  = 0.15;  // chance to spawn when dropping from 2 → 1 charge
-const BATTERY_SPAWN_CHANCE_HIGH = 0.45;  // chance to spawn when dropping from 1 → 0 charges
+const BATTERY_SPAWN_CHANCE_LOW  = 0.10;  // chance to spawn when dropping from 2 → 1 charge
+const BATTERY_SPAWN_CHANCE_HIGH = 0.35;  // chance to spawn when dropping from 1 → 0 charges
 const BATTERY_DURATION          = 30000; // ms before battery despawns
+const BATTERY_GRACE_PERIOD      = 500;   // ms after spawn before battery can be collected
 
 // Powerup pickup availability
-const POWERUP_PICKUP_DURATION   = 15000; // ms a powerup icon stays on screen before despawning
+const POWERUP_PICKUP_DURATION   = 13000; // ms a powerup icon stays on screen before despawning
 
 // ====== DOM ELEMENTS ======
 document.getElementById("build-number").textContent = "Build " + BUILD_NUMBER;
@@ -479,6 +480,8 @@ function schedulePowerup(type, initialDelay) {
     const delay = initialDelay !== undefined ? initialDelay : POWERUP_SPAWN_MIN + Math.random() * (POWERUP_SPAWN_MAX - POWERUP_SPAWN_MIN);
     setTimeout(() => {
         if (!gameRunning) return;
+        // If pierce is already active, suppress this spawn and let expiry restart the chain
+        if (type === "pierce-laser" && pierceActive) return;
         spawnPowerup(type);
         schedulePowerup(type);
     }, delay);
@@ -578,8 +581,8 @@ function refreshPowerupTimer(type) {
     } else if (type === "pierce-laser" && pierceActive) {
         if (pierceTimer) clearTimeout(pierceTimer);
         const remaining = Math.min(POWERUP_DURATION, POWERUP_MAX_DURATION - (Date.now() - pierceStartTime));
-        if (remaining <= 0) { pierceActive = false; updatePowerupIndicator(); return; }
-        pierceTimer = setTimeout(() => { pierceActive = false; updatePowerupIndicator(); }, remaining);
+        if (remaining <= 0) { pierceActive = false; updatePowerupIndicator(); schedulePowerup("pierce-laser"); return; }
+        pierceTimer = setTimeout(() => { pierceActive = false; updatePowerupIndicator(); schedulePowerup("pierce-laser"); }, remaining);
     }
 }
 
@@ -887,8 +890,11 @@ function drawShieldHUD() {
 }
 
 // ====== SHIELD BATTERY PICKUP ======
-function spawnShieldBattery(x, y) {
+function spawnShieldBattery() {
     if (shieldBattery) return; // only one at a time
+    const margin = 80;
+    const x = margin + Math.random() * (canvas.width  - margin * 2);
+    const y = margin + Math.random() * (canvas.height - margin * 2);
     shieldBattery = { x, y, spawnTime: Date.now() };
     if (shieldBatteryTimeout) clearTimeout(shieldBatteryTimeout);
     shieldBatteryTimeout = setTimeout(() => { shieldBattery = null; }, BATTERY_DURATION);
@@ -990,11 +996,15 @@ function gameLoop() {
         b.x += b.dx * b.speed;
         b.y += b.dy * b.speed;
         const laserColor = pierceActive ? "#ff00ff" : "cyan";
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(Math.atan2(b.dx, -b.dy)); // align rect with bullet travel direction
         ctx.fillStyle = laserColor;
         ctx.shadowColor = laserColor;
         ctx.shadowBlur = 6;
-        ctx.fillRect(b.x - 1, b.y, 2, b.size);
+        ctx.fillRect(-1, 0, 2, b.size);
         ctx.shadowBlur = 0;
+        ctx.restore();
         if (b.y < -b.size || b.y > canvas.height + b.size || b.x < -b.size || b.x > canvas.width + b.size) {
             bullets.splice(i, 1);
         }
@@ -1046,9 +1056,9 @@ function gameLoop() {
                 // Maybe spawn a battery pickup
                 const roll = Math.random();
                 if (prevCharges === 2 && roll < BATTERY_SPAWN_CHANCE_LOW) {
-                    spawnShieldBattery(a.x, a.y);
+                    spawnShieldBattery();
                 } else if (prevCharges === 1 && roll < BATTERY_SPAWN_CHANCE_HIGH) {
-                    spawnShieldBattery(a.x, a.y);
+                    spawnShieldBattery();
                 }
                 return; // skip bullet check for this asteroid
             } else {
@@ -1088,7 +1098,8 @@ function gameLoop() {
     // ---- Shield Battery ----
     if (shieldBattery) {
         drawShieldBattery(shieldBattery);
-        if (isColliding({ x: shipX, y: shipY, size: 20 }, { x: shieldBattery.x, y: shieldBattery.y, size: 14 })) {
+        const batteryAge = Date.now() - shieldBattery.spawnTime;
+        if (batteryAge > BATTERY_GRACE_PERIOD && isColliding({ x: shipX, y: shipY, size: 20 }, { x: shieldBattery.x, y: shieldBattery.y, size: 14 })) {
             shieldCharges = SHIELD_MAX_CHARGES;
             if (shieldRegenTimer) { clearTimeout(shieldRegenTimer); shieldRegenTimer = null; }
             if (shieldBatteryTimeout) { clearTimeout(shieldBatteryTimeout); shieldBatteryTimeout = null; }
