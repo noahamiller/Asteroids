@@ -1,5 +1,5 @@
 // ====== BUILD INFO ======
-const BUILD_NUMBER = 21;
+const BUILD_NUMBER = 22;
 
 // ====== DOM ELEMENTS ======
 document.getElementById("build-number").textContent = "Build " + BUILD_NUMBER;
@@ -182,14 +182,13 @@ function updateHighScoresDisplay() {
 // ====== FIRESTORE HIGH SCORES ======
 function loadHighScores() {
     db.collection("highscores")
-        .orderBy("score", "desc")
-        .limit(10)
+        .where("build", "==", BUILD_NUMBER)
         .get()
         .then((snapshot) => {
             highScores = [];
-            snapshot.forEach((doc) => {
-                highScores.push(doc.data());
-            });
+            snapshot.forEach((doc) => highScores.push(doc.data()));
+            highScores.sort((a, b) => b.score - a.score);
+            highScores = highScores.slice(0, 10);
             updateHighScoresDisplay();
         })
         .catch((err) => {
@@ -204,12 +203,12 @@ function saveScoreToFirestore(name, scoreVal) {
         build: BUILD_NUMBER,
         timestamp: firebase.firestore.FieldValue.serverTimestamp()
     }).then(() => {
-        // After saving, prune to top 10
+        // Prune to top 10 for the current build only
         return db.collection("highscores")
-            .orderBy("score", "desc")
+            .where("build", "==", BUILD_NUMBER)
             .get()
             .then((snapshot) => {
-                const docs = snapshot.docs;
+                const docs = snapshot.docs.sort((a, b) => b.data().score - a.data().score);
                 if (docs.length > 10) {
                     const batch = db.batch();
                     docs.slice(10).forEach((doc) => batch.delete(doc.ref));
@@ -357,7 +356,7 @@ function schedulePowerup(type) {
             powerupState[type].chance = Math.min(powerupState[type].chance + POWERUP_CHANCE_STEP, POWERUP_CHANCE_MAX);
         }
         schedulePowerup(type);
-    }, 5000);
+    }, 3000);
 }
 
 function spawnPowerup(type) {
