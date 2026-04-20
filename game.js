@@ -1,5 +1,5 @@
 // ====== BUILD INFO ======
-const BUILD_NUMBER = 23;
+const BUILD_NUMBER = 24;
 
 // ====== TUNABLE CONSTANTS ======
 const POWERUP_DURATION        = 8000;   // ms a powerup lasts per pickup
@@ -16,6 +16,31 @@ const RAPID_FIRE_MULTIPLIER   = 1.75;   // fire rate multiplier per stack
 const RAPID_FIRE_MIN_COOLDOWN = 100;    // ms fastest possible fire rate
 const BASE_SHOT_COOLDOWN      = 300;    // ms base fire rate
 
+// Ship movement
+const THRUST_FORCE   = 0.15;  // velocity added per frame when thrusting
+const MAX_SPEED      = 7;     // maximum ship velocity magnitude
+const ROTATION_RATE  = 0.05;  // radians rotated per frame
+
+// Shield
+const SHIELD_MAX_CHARGES = 3;
+const SHIELD_REGEN_TIME  = 30000;  // ms between charge regenerations
+
+// Asteroid spawning
+const ASTEROID_SPAWN_MIN    = 800;    // ms minimum interval between spawns
+const ASTEROID_SPAWN_MAX    = 1600;   // ms maximum interval between spawns
+const ASTEROID_MIN_START    = 1;      // starting minimum asteroid count
+const ASTEROID_MIN_INTERVAL = 30000;  // ms between minimum count increases
+const ASTEROID_MIN_MAX      = 5;      // ceiling for the minimum count
+
+// Screen wrapping
+const WRAP_OVERLAP    = 10;   // px of object still visible before teleporting to other side
+const SHIP_VISUAL_SIZE = 30;  // px radius used for ship wrap threshold
+
+// Shield battery pickup
+const BATTERY_SPAWN_CHANCE_LOW  = 0.15;  // chance to spawn when dropping from 2 → 1 charge
+const BATTERY_SPAWN_CHANCE_HIGH = 0.35;  // chance to spawn when dropping from 1 → 0 charges
+const BATTERY_DURATION          = 25000; // ms before battery despawns
+
 // ====== DOM ELEMENTS ======
 document.getElementById("build-number").textContent = "Build " + BUILD_NUMBER;
 const canvas = document.getElementById("game-canvas");
@@ -24,6 +49,7 @@ const ctx = canvas.getContext("2d");
 const mainMenu = document.getElementById("main-menu");
 const startBtn = document.getElementById("start-btn");
 const highScoreList = document.getElementById("high-score-list");
+const highScoreListAllTime = document.getElementById("high-score-list-alltime");
 const exitBtn = document.getElementById("exit-btn");
 const powerupIndicator = document.getElementById("powerup-indicator");
 const initialsOverlay = document.getElementById("initials-overlay");
@@ -40,6 +66,27 @@ let score = 0;
 let highScores = [];
 let gameRunning = false;
 let lastShot = 0;
+
+// Ship state
+let shipX = 0, shipY = 0;
+let shipVX = 0, shipVY = 0;
+let shipAngle = 0; // radians; 0 = pointing up, increases clockwise
+
+// Shield state
+let shieldCharges = SHIELD_MAX_CHARGES;
+let shieldRegenTimer = null;
+
+// Shield battery pickup
+let shieldBattery = null;
+let shieldBatteryTimeout = null;
+
+// Asteroid minimum enforcement
+let asteroidMinCount = ASTEROID_MIN_START;
+let asteroidMinIncTimer = null;
+let asteroidSpawnTimeoutId = null;
+
+// Keyboard input
+const keys = {};
 
 // Powerup state
 let laserCount = 1;
@@ -190,6 +237,24 @@ function updateHighScoresDisplay() {
     });
 }
 
+function updateAllTimeScoresDisplay(scores) {
+    highScoreListAllTime.innerHTML = "";
+    if (scores.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "No scores yet";
+        li.style.color = "#666";
+        li.style.listStyle = "none";
+        highScoreListAllTime.appendChild(li);
+        return;
+    }
+    scores.forEach((entry) => {
+        const li = document.createElement("li");
+        const buildTag = entry.build ? " (b" + entry.build + ")" : "";
+        li.textContent = entry.name + "  " + entry.score.toLocaleString() + buildTag;
+        highScoreListAllTime.appendChild(li);
+    });
+}
+
 // ====== FIRESTORE HIGH SCORES ======
 function loadHighScores() {
     db.collection("highscores")
@@ -204,6 +269,21 @@ function loadHighScores() {
         })
         .catch((err) => {
             console.error("Failed to load high scores:", err);
+        });
+}
+
+function loadHighScoresAllTime() {
+    db.collection("highscores")
+        .orderBy("score", "desc")
+        .limit(10)
+        .get()
+        .then((snapshot) => {
+            const scores = [];
+            snapshot.forEach((doc) => scores.push(doc.data()));
+            updateAllTimeScoresDisplay(scores);
+        })
+        .catch((err) => {
+            console.error("Failed to load all-time high scores:", err);
         });
 }
 
@@ -230,13 +310,21 @@ function saveScoreToFirestore(name, scoreVal) {
 }
 
 loadHighScores();
+loadHighScoresAllTime();
 
 // ====== EVENT LISTENERS ======
-canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
+const GAME_KEYS = new Set([
+    "ArrowUp","ArrowDown","ArrowLeft","ArrowRight",
+    "KeyW","KeyA","KeyS","KeyD",
+    "Numpad4","Numpad5","Numpad6","Numpad8",
+    "Space"
+]);
+
+window.addEventListener("keydown", (e) => {
+    keys[e.code] = true;
+    if (gameRunning && GAME_KEYS.has(e.code)) e.preventDefault();
 });
+window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
 canvas.addEventListener("mousedown", (e) => {
     e.preventDefault();
@@ -261,6 +349,30 @@ function startGame() {
     bullets = [];
     asteroids = [];
     powerups = [];
+
+    // Ship
+    shipX = canvas.width / 2;
+    shipY = canvas.height / 2;
+    shipVX = 0; shipVY = 0; shipAngle = 0;
+
+    // Shield
+    shieldCharges = SHIELD_MAX_CHARGES;
+    if (shieldRegenTimer) clearTimeout(shieldRegenTimer);
+    shieldRegenTimer = null;
+    shieldBattery = null;
+    if (shieldBatteryTimeout) clearTimeout(shieldBatteryTimeout);
+    shieldBatteryTimeout = null;
+
+    // Asteroid minimum
+    asteroidMinCount = ASTEROID_MIN_START;
+    if (asteroidMinIncTimer) clearInterval(asteroidMinIncTimer);
+    asteroidMinIncTimer = setInterval(() => {
+        if (asteroidMinCount < ASTEROID_MIN_MAX) asteroidMinCount++;
+    }, ASTEROID_MIN_INTERVAL);
+    if (asteroidSpawnTimeoutId) clearTimeout(asteroidSpawnTimeoutId);
+    asteroidSpawnTimeoutId = null;
+
+    // Powerups
     laserCount = 1;
     if (multiLaserTimer) clearTimeout(multiLaserTimer);
     rapidFireMultiplier = 1.0;
@@ -273,7 +385,8 @@ function startGame() {
     powerupIndicator.style.display = "none";
     gameRunning = true;
 
-    spawnAsteroid();
+    createAsteroid();
+    scheduleNextAsteroid();
     schedulePowerup("multi-laser");
     schedulePowerup("rapid-fire", POWERUP_STAGGER_RAPID + Math.random() * 2000);
     schedulePowerup("pierce-laser", POWERUP_STAGGER_PIERCE + Math.random() * 2000);
@@ -284,7 +397,13 @@ function startGame() {
 function exitGame() {
     gameRunning = false;
 
-    // Clear powerup state
+    // Clear timers
+    if (shieldRegenTimer) clearTimeout(shieldRegenTimer);
+    shieldRegenTimer = null;
+    if (asteroidMinIncTimer) clearInterval(asteroidMinIncTimer);
+    asteroidMinIncTimer = null;
+    if (asteroidSpawnTimeoutId) clearTimeout(asteroidSpawnTimeoutId);
+    asteroidSpawnTimeoutId = null;
     laserCount = 1;
     if (multiLaserTimer) clearTimeout(multiLaserTimer);
     multiLaserStartTime = 0;
@@ -319,7 +438,7 @@ function saveScoreWithInitials(initials) {
     mainMenu.style.display = "flex";
 
     saveScoreToFirestore(initials, score)
-        .then(() => loadHighScores())
+        .then(() => { loadHighScores(); loadHighScoresAllTime(); })
         .catch((err) => {
             console.error("Failed to save score:", err);
             // Fallback: update local display anyway
@@ -342,25 +461,12 @@ initialsInput.addEventListener("keydown", (e) => {
 
 // ====== SHOOTING ======
 function shoot() {
-    if (laserCount === 1) {
-        bullets.push({
-            x: mouse.x, y: mouse.y,
-            size: 20, speed: 12
-        });
-    } else {
-        // Multi-laser: spread evenly
-        const spreadAngle = 0.15;
-        const totalSpread = (laserCount - 1) * spreadAngle;
-        const startAngle = -totalSpread / 2;
-        for (let i = 0; i < laserCount; i++) {
-            const angle = startAngle + i * spreadAngle;
-            bullets.push({
-                x: mouse.x, y: mouse.y,
-                size: 20, speed: 12,
-                dx: Math.sin(angle),
-                dy: -Math.cos(angle)
-            });
-        }
+    const spreadAngle = 0.15;
+    const totalSpread = (laserCount - 1) * spreadAngle;
+    const startOffset = -totalSpread / 2;
+    for (let i = 0; i < laserCount; i++) {
+        const a = shipAngle + startOffset + i * spreadAngle;
+        bullets.push({ x: shipX, y: shipY, size: 20, speed: 12, dx: Math.sin(a), dy: -Math.cos(a) });
     }
 }
 
@@ -496,31 +602,33 @@ function collectPowerup(p) {
 }
 
 // ====== ASTEROIDS ======
-function spawnAsteroid() {
-    if (!gameRunning) return;
-
+function createAsteroid() {
     const size = Math.random() * 30 + 10;
     const edge = Math.floor(Math.random() * 4);
-
     let x, y;
     if (edge === 0) { x = Math.random() * canvas.width; y = -size; }
     if (edge === 1) { x = canvas.width + size; y = Math.random() * canvas.height; }
     if (edge === 2) { x = Math.random() * canvas.width; y = canvas.height + size; }
     if (edge === 3) { x = -size; y = Math.random() * canvas.height; }
-
     const angle = Math.atan2(canvas.height / 2 - y, canvas.width / 2 - x);
-
     asteroids.push({
         x, y, size,
         speed: 1 + (40 - size) / 30 * 3,
-        dx: Math.cos(angle),
-        dy: Math.sin(angle),
-        rotation: 0,
-        rotationSpeed: (Math.random() - 0.5) * 0.2,
+        dx: Math.cos(angle), dy: Math.sin(angle),
+        rotation: 0, rotationSpeed: (Math.random() - 0.5) * 0.2,
         shape: generateAsteroidShape(size)
     });
+}
 
-    setTimeout(spawnAsteroid, 800 + Math.random() * 800);
+function scheduleNextAsteroid(delay) {
+    if (asteroidSpawnTimeoutId) clearTimeout(asteroidSpawnTimeoutId);
+    const wait = delay !== undefined ? delay : ASTEROID_SPAWN_MIN + Math.random() * (ASTEROID_SPAWN_MAX - ASTEROID_SPAWN_MIN);
+    asteroidSpawnTimeoutId = setTimeout(() => {
+        if (!gameRunning) return;
+        createAsteroid();
+        // If still below minimum after spawning, respawn immediately (resets timer)
+        scheduleNextAsteroid(asteroids.length < asteroidMinCount ? 0 : undefined);
+    }, wait);
 }
 
 // ====== COLLISION CHECK ======
@@ -535,6 +643,7 @@ function isColliding(a, b) {
 function drawSpaceship(x, y) {
     ctx.save();
     ctx.translate(x, y);
+    ctx.rotate(shipAngle);
 
     const flicker = 0.7 + Math.random() * 0.3;
 
@@ -744,99 +853,205 @@ function generateAsteroidShape(size) {
     return points;
 }
 
+// ====== SHIELD ======
+function regenShield() {
+    if (!gameRunning) return;
+    if (shieldCharges < SHIELD_MAX_CHARGES) {
+        shieldCharges++;
+        if (shieldCharges < SHIELD_MAX_CHARGES) {
+            shieldRegenTimer = setTimeout(regenShield, SHIELD_REGEN_TIME);
+        } else {
+            shieldRegenTimer = null;
+        }
+    }
+}
+
+function drawShieldHUD() {
+    const barW = 30, barH = 8, gap = 10;
+    const totalW = SHIELD_MAX_CHARGES * barW + (SHIELD_MAX_CHARGES - 1) * gap;
+    const sx = (canvas.width - totalW) / 2;
+    const sy = canvas.height - 30;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < SHIELD_MAX_CHARGES; i++) {
+        const bx = sx + i * (barW + gap);
+        ctx.strokeStyle = "#4488ff";
+        ctx.strokeRect(bx, sy, barW, barH);
+        if (i < shieldCharges) {
+            ctx.fillStyle = "#4488ff";
+            ctx.fillRect(bx + 1, sy + 1, barW - 2, barH - 2);
+        }
+    }
+}
+
+// ====== SHIELD BATTERY PICKUP ======
+function spawnShieldBattery(x, y) {
+    if (shieldBattery) return; // only one at a time
+    shieldBattery = { x, y, spawnTime: Date.now() };
+    if (shieldBatteryTimeout) clearTimeout(shieldBatteryTimeout);
+    shieldBatteryTimeout = setTimeout(() => { shieldBattery = null; }, BATTERY_DURATION);
+}
+
+function drawShieldBattery(b) {
+    const w = 28, h = 16;
+    const bx = b.x - w / 2, by = b.y - h / 2;
+    const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 300);
+    ctx.save();
+    ctx.shadowColor = `rgba(50,150,255,${pulse})`;
+    ctx.shadowBlur = 12;
+    // Body
+    ctx.strokeStyle = "#55aaff";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, by, w, h);
+    ctx.fillStyle = `rgba(50,120,255,0.25)`;
+    ctx.fillRect(bx, by, w, h);
+    // Positive terminal nub
+    ctx.fillStyle = "#55aaff";
+    ctx.fillRect(b.x + w / 2, b.y - 3, 4, 6);
+    // Three vertical cell lines inside
+    for (let i = 1; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(bx + (w / 3) * i, by + 2);
+        ctx.lineTo(bx + (w / 3) * i, by + h - 2);
+        ctx.strokeStyle = `rgba(100,180,255,0.7)`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
 // ====== GAME LOOP ======
 function gameLoop() {
     if (!gameRunning) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw scrolling background
     drawBackground();
 
-    // Draw spaceship at mouse position
-    drawSpaceship(mouse.x, mouse.y);
+    // ---- Ship movement ----
+    const thrusting = keys["KeyW"] || keys["ArrowUp"]    || keys["Numpad8"];
+    const rotLeft   = keys["KeyA"] || keys["ArrowLeft"]  || keys["Numpad4"];
+    const rotRight  = keys["KeyD"] || keys["ArrowRight"] || keys["Numpad6"];
+    const braking   = keys["KeyS"] || keys["ArrowDown"]  || keys["Numpad5"];
 
-    // Shoot lasers if mouse down and cooldown passed
-    if (mouse.down && Date.now() - lastShot > Math.max(RAPID_FIRE_MIN_COOLDOWN, Math.round(BASE_SHOT_COOLDOWN / rapidFireMultiplier))) {
+    if (rotLeft)  shipAngle -= ROTATION_RATE;
+    if (rotRight) shipAngle += ROTATION_RATE;
+
+    if (braking) {
+        const spd = Math.sqrt(shipVX * shipVX + shipVY * shipVY);
+        if (spd > 0.1) {
+            let target = Math.atan2(-shipVX, shipVY);
+            let diff = target - shipAngle;
+            while (diff >  Math.PI) diff -= 2 * Math.PI;
+            while (diff < -Math.PI) diff += 2 * Math.PI;
+            shipAngle += Math.abs(diff) <= ROTATION_RATE ? diff : Math.sign(diff) * ROTATION_RATE;
+        }
+    }
+
+    if (thrusting) {
+        shipVX += Math.sin(shipAngle) * THRUST_FORCE;
+        shipVY -= Math.cos(shipAngle) * THRUST_FORCE;
+        const spd = Math.sqrt(shipVX * shipVX + shipVY * shipVY);
+        if (spd > MAX_SPEED) { shipVX = shipVX / spd * MAX_SPEED; shipVY = shipVY / spd * MAX_SPEED; }
+    }
+
+    shipX += shipVX;
+    shipY += shipVY;
+    // Wrap edges — teleport only once SHIP_VISUAL_SIZE px have disappeared off-screen
+    if (shipX + SHIP_VISUAL_SIZE < WRAP_OVERLAP) shipX += canvas.width;
+    if (shipX - SHIP_VISUAL_SIZE > canvas.width  - WRAP_OVERLAP) shipX -= canvas.width;
+    if (shipY + SHIP_VISUAL_SIZE < WRAP_OVERLAP) shipY += canvas.height;
+    if (shipY - SHIP_VISUAL_SIZE > canvas.height - WRAP_OVERLAP) shipY -= canvas.height;
+
+    // ---- Shield glow ----
+    if (shieldCharges > 0) {
+        const alpha = 0.05 * shieldCharges;
+        const sg = ctx.createRadialGradient(shipX, shipY, 15, shipX, shipY, 50);
+        sg.addColorStop(0,   `rgba(50,120,255,0)`);
+        sg.addColorStop(0.6, `rgba(50,120,255,${alpha})`);
+        sg.addColorStop(1,   `rgba(50,120,255,0)`);
+        ctx.fillStyle = sg;
+        ctx.beginPath();
+        ctx.arc(shipX, shipY, 50, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    drawSpaceship(shipX, shipY);
+
+    // ---- Shoot ----
+    if ((mouse.down || keys["Space"]) && Date.now() - lastShot > Math.max(RAPID_FIRE_MIN_COOLDOWN, Math.round(BASE_SHOT_COOLDOWN / rapidFireMultiplier))) {
         shoot();
         lastShot = Date.now();
     }
 
-    // Update bullets
+    // ---- Bullets ----
     bullets.forEach((b, i) => {
-        if (b.dx !== undefined && b.dy !== undefined) {
-            b.x += b.dx * b.speed;
-            b.y += b.dy * b.speed;
-        } else {
-            b.y -= b.speed;
-        }
+        b.x += b.dx * b.speed;
+        b.y += b.dy * b.speed;
         const laserColor = pierceActive ? "#ff00ff" : "cyan";
         ctx.fillStyle = laserColor;
         ctx.shadowColor = laserColor;
         ctx.shadowBlur = 6;
         ctx.fillRect(b.x - 1, b.y, 2, b.size);
         ctx.shadowBlur = 0;
-
-        // Remove off-screen bullets
-        if (b.y < -b.size || b.x < -b.size || b.x > canvas.width + b.size) {
+        if (b.y < -b.size || b.y > canvas.height + b.size || b.x < -b.size || b.x > canvas.width + b.size) {
             bullets.splice(i, 1);
         }
     });
 
-    // Update asteroids
+    // ---- Asteroids ----
     asteroids.forEach((a, i) => {
         a.x += a.dx * a.speed;
         a.y += a.dy * a.speed;
         a.rotation += a.rotationSpeed;
 
-        // Check collisions with other asteroids
+        // Wrap — asteroid must be mostly off-screen (leaving WRAP_OVERLAP px visible) before teleporting
+        if (a.x + a.size < WRAP_OVERLAP) a.x += canvas.width;
+        else if (a.x - a.size > canvas.width  - WRAP_OVERLAP) a.x -= canvas.width;
+        if (a.y + a.size < WRAP_OVERLAP) a.y += canvas.height;
+        else if (a.y - a.size > canvas.height - WRAP_OVERLAP) a.y -= canvas.height;
+
+        // Asteroid-asteroid collisions
         for (let j = i + 1; j < asteroids.length; j++) {
             const b = asteroids[j];
             if (isColliding(a, b)) {
                 if (a.size > 15) {
-                    const numPieces = 2;
-                    for (let k = 0; k < numPieces; k++) {
-                        const newSize = a.size / 2;
-                        const newAngle = Math.random() * Math.PI * 2;
-                        asteroids.push({
-                            x: a.x, y: a.y, size: newSize,
-                            speed: 1 + (40 - newSize) / 30 * 3,
-                            dx: Math.cos(newAngle), dy: Math.sin(newAngle),
-                            rotation: 0,
-                            rotationSpeed: (Math.random() - 0.5) * 0.2,
-                            shape: generateAsteroidShape(newSize)
-                        });
+                    for (let k = 0; k < 2; k++) {
+                        const ns = a.size / 2, na = Math.random() * Math.PI * 2;
+                        asteroids.push({ x: a.x, y: a.y, size: ns, speed: 1 + (40 - ns) / 30 * 3, dx: Math.cos(na), dy: Math.sin(na), rotation: 0, rotationSpeed: (Math.random() - 0.5) * 0.2, shape: generateAsteroidShape(ns) });
                     }
-                    asteroids.splice(i, 1);
-                    i--;
-                    break;
+                    asteroids.splice(i, 1); i--; break;
                 }
                 if (b.size > 15) {
-                    const numPieces = 2;
-                    for (let k = 0; k < numPieces; k++) {
-                        const newSize = b.size / 2;
-                        const newAngle = Math.random() * Math.PI * 2;
-                        asteroids.push({
-                            x: b.x, y: b.y, size: newSize,
-                            speed: 1 + (40 - newSize) / 30 * 3,
-                            dx: Math.cos(newAngle), dy: Math.sin(newAngle),
-                            rotation: 0,
-                            rotationSpeed: (Math.random() - 0.5) * 0.2,
-                            shape: generateAsteroidShape(newSize)
-                        });
+                    for (let k = 0; k < 2; k++) {
+                        const ns = b.size / 2, na = Math.random() * Math.PI * 2;
+                        asteroids.push({ x: b.x, y: b.y, size: ns, speed: 1 + (40 - ns) / 30 * 3, dx: Math.cos(na), dy: Math.sin(na), rotation: 0, rotationSpeed: (Math.random() - 0.5) * 0.2, shape: generateAsteroidShape(ns) });
                     }
-                    asteroids.splice(j, 1);
-                    j--;
+                    asteroids.splice(j, 1); j--;
                 }
             }
         }
 
         drawAsteroid(a.x, a.y, a.size, a.rotation, a.shape);
 
-        // Check spaceship collision
-        if (isColliding({ x: mouse.x, y: mouse.y, size: 10 }, a)) {
-            exitGame();
-            return;
+        // Ship collision
+        if (isColliding({ x: shipX, y: shipY, size: 14 }, a)) {
+            if (shieldCharges > 0) {
+                const prevCharges = shieldCharges;
+                shieldCharges--;
+                if (shieldRegenTimer) clearTimeout(shieldRegenTimer);
+                shieldRegenTimer = setTimeout(regenShield, SHIELD_REGEN_TIME);
+                asteroids.splice(i, 1);
+                // Maybe spawn a battery pickup
+                const roll = Math.random();
+                if (prevCharges === 2 && roll < BATTERY_SPAWN_CHANCE_LOW) {
+                    spawnShieldBattery(a.x, a.y);
+                } else if (prevCharges === 1 && roll < BATTERY_SPAWN_CHANCE_HIGH) {
+                    spawnShieldBattery(a.x, a.y);
+                }
+                return; // skip bullet check for this asteroid
+            } else {
+                exitGame();
+                return;
+            }
         }
 
         // Bullet collisions
@@ -846,16 +1061,8 @@ function gameLoop() {
                 if (a.size > 15) {
                     const numPieces = 2 + Math.floor(Math.random() * 2);
                     for (let k = 0; k < numPieces; k++) {
-                        const newSize = a.size / 2;
-                        const newAngle = Math.random() * Math.PI * 2;
-                        asteroids.push({
-                            x: a.x, y: a.y, size: newSize,
-                            speed: 1 + (40 - newSize) / 30 * 3,
-                            dx: Math.cos(newAngle), dy: Math.sin(newAngle),
-                            rotation: 0,
-                            rotationSpeed: (Math.random() - 0.5) * 0.2,
-                            shape: generateAsteroidShape(newSize)
-                        });
+                        const ns = a.size / 2, na = Math.random() * Math.PI * 2;
+                        asteroids.push({ x: a.x, y: a.y, size: ns, speed: 1 + (40 - ns) / 30 * 3, dx: Math.cos(na), dy: Math.sin(na), rotation: 0, rotationSpeed: (Math.random() - 0.5) * 0.2, shape: generateAsteroidShape(ns) });
                     }
                 }
                 asteroids.splice(i, 1);
@@ -865,27 +1072,32 @@ function gameLoop() {
         });
     });
 
-    // Draw and check powerups
+    // ---- Powerups ----
     powerups.forEach((p, i) => {
         drawPowerup(p);
-
-        // Despawn after 10 seconds
-        if (Date.now() - p.spawnTime > 10000) {
-            powerups.splice(i, 1);
-            return;
-        }
-
-        // Check collection
-        if (isColliding({ x: mouse.x, y: mouse.y, size: 12 }, p)) {
+        if (Date.now() - p.spawnTime > 10000) { powerups.splice(i, 1); return; }
+        if (isColliding({ x: shipX, y: shipY, size: 20 }, p)) {
             collectPowerup(p);
             powerups.splice(i, 1);
         }
     });
 
-    // Draw score
+    // ---- Shield Battery ----
+    if (shieldBattery) {
+        drawShieldBattery(shieldBattery);
+        if (isColliding({ x: shipX, y: shipY, size: 20 }, { x: shieldBattery.x, y: shieldBattery.y, size: 14 })) {
+            shieldCharges = SHIELD_MAX_CHARGES;
+            if (shieldRegenTimer) { clearTimeout(shieldRegenTimer); shieldRegenTimer = null; }
+            if (shieldBatteryTimeout) { clearTimeout(shieldBatteryTimeout); shieldBatteryTimeout = null; }
+            shieldBattery = null;
+        }
+    }
+
+    // ---- HUD ----
     ctx.fillStyle = "white";
     ctx.font = "20px Arial";
     ctx.fillText("Score: " + score, 10, 25);
+    drawShieldHUD();
 
     requestAnimationFrame(gameLoop);
 }
