@@ -1,9 +1,9 @@
 // ====== BUILD INFO ======
-const BUILD_NUMBER = 24;
+const BUILD_NUMBER = 25;
 
 // ====== TUNABLE CONSTANTS ======
-const POWERUP_DURATION        = 8000;   // ms a powerup lasts per pickup
-const POWERUP_MAX_DURATION    = 30000;  // ms hard cap regardless of refreshes
+const POWERUP_DURATION        = 9500;   // ms a powerup lasts per pickup
+const POWERUP_MAX_DURATION    = 45000;  // ms hard cap regardless of refreshes
 const POWERUP_SPAWN_MIN       = 12000;  // ms minimum time between spawns per type
 const POWERUP_SPAWN_MAX       = 20000;  // ms maximum time between spawns per type
 const POWERUP_STAGGER_RAPID   = 6000;   // ms before rapid-fire starts spawning
@@ -13,7 +13,7 @@ const MULTI_LASER_INCREMENT   = 2;      // lasers added per pickup
 const MULTI_LASER_MAX         = 9;      // max laser count
 
 const RAPID_FIRE_MULTIPLIER   = 1.75;   // fire rate multiplier per stack
-const RAPID_FIRE_MIN_COOLDOWN = 100;    // ms fastest possible fire rate
+const RAPID_FIRE_MIN_COOLDOWN = 75;    // ms fastest possible fire rate
 const BASE_SHOT_COOLDOWN      = 300;    // ms base fire rate
 
 // Ship movement
@@ -26,10 +26,10 @@ const SHIELD_MAX_CHARGES = 3;
 const SHIELD_REGEN_TIME  = 30000;  // ms between charge regenerations
 
 // Asteroid spawning
-const ASTEROID_SPAWN_MIN    = 800;    // ms minimum interval between spawns
-const ASTEROID_SPAWN_MAX    = 1600;   // ms maximum interval between spawns
+const ASTEROID_SPAWN_MIN    = 1400;    // ms minimum interval between spawns
+const ASTEROID_SPAWN_MAX    = 2500;   // ms maximum interval between spawns
 const ASTEROID_MIN_START    = 1;      // starting minimum asteroid count
-const ASTEROID_MIN_INTERVAL = 30000;  // ms between minimum count increases
+const ASTEROID_MIN_INTERVAL = 60000;  // ms between minimum count increases
 const ASTEROID_MIN_MAX      = 5;      // ceiling for the minimum count
 
 // Screen wrapping
@@ -38,8 +38,11 @@ const SHIP_VISUAL_SIZE = 30;  // px radius used for ship wrap threshold
 
 // Shield battery pickup
 const BATTERY_SPAWN_CHANCE_LOW  = 0.15;  // chance to spawn when dropping from 2 → 1 charge
-const BATTERY_SPAWN_CHANCE_HIGH = 0.35;  // chance to spawn when dropping from 1 → 0 charges
-const BATTERY_DURATION          = 25000; // ms before battery despawns
+const BATTERY_SPAWN_CHANCE_HIGH = 0.45;  // chance to spawn when dropping from 1 → 0 charges
+const BATTERY_DURATION          = 30000; // ms before battery despawns
+
+// Powerup pickup availability
+const POWERUP_PICKUP_DURATION   = 15000; // ms a powerup icon stays on screen before despawning
 
 // ====== DOM ELEMENTS ======
 document.getElementById("build-number").textContent = "Build " + BUILD_NUMBER;
@@ -1075,7 +1078,7 @@ function gameLoop() {
     // ---- Powerups ----
     powerups.forEach((p, i) => {
         drawPowerup(p);
-        if (Date.now() - p.spawnTime > 10000) { powerups.splice(i, 1); return; }
+        if (Date.now() - p.spawnTime > POWERUP_PICKUP_DURATION) { powerups.splice(i, 1); return; }
         if (isColliding({ x: shipX, y: shipY, size: 20 }, p)) {
             collectPowerup(p);
             powerups.splice(i, 1);
